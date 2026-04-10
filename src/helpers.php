@@ -26,7 +26,7 @@ if (! function_exists('\Laravel\Prompts\autocomplete')) {
     /**
      * Prompt the user for text input with auto-completion.
      *
-     * @param  array<string>|Collection<int, string>|Closure(string): (array<string>|Collection<int, string>)  $options
+     * @param array<string>|Collection<int, string>|Closure(string): (array<string>|Collection<int, string>) $options
      */
     function autocomplete(
         string $label,
@@ -90,8 +90,8 @@ if (! function_exists('\Laravel\Prompts\select')) {
     /**
      * Prompt the user to select an option.
      *
-     * @param  array<int|string, string>|Collection<int|string, string>  $options
-     * @param  true|string  $required
+     * @param array<int|string, string>|Collection<int|string, string> $options
+     * @param true|string $required
      */
     function select(
         string $label,
@@ -112,8 +112,8 @@ if (! function_exists('\Laravel\Prompts\multiselect')) {
     /**
      * Prompt the user to select multiple options.
      *
-     * @param  array<int|string, string>|Collection<int|string, string>  $options
-     * @param  array<int|string>|Collection<int, int|string>  $default
+     * @param array<int|string, string>|Collection<int|string, string> $options
+     * @param array<int|string>|Collection<int, int|string> $default
      * @return array<int|string>
      */
     function multiselect(
@@ -173,7 +173,7 @@ if (! function_exists('\Laravel\Prompts\suggest')) {
     /**
      * Prompt the user for text input with auto-completion.
      *
-     * @param  array<string>|Collection<int, string>|Closure(string): array<string>  $options
+     * @param array<string>|Collection<int, string>|Closure(string): array<string> $options
      */
     function suggest(
         string $label,
@@ -195,8 +195,8 @@ if (! function_exists('\Laravel\Prompts\search')) {
     /**
      * Allow the user to search for an option.
      *
-     * @param  Closure(string): array<int|string, string>  $options
-     * @param  true|string  $required
+     * @param Closure(string): array<int|string, string> $options
+     * @param true|string $required
      */
     function search(
         string $label,
@@ -217,7 +217,7 @@ if (! function_exists('\Laravel\Prompts\multisearch')) {
     /**
      * Allow the user to search for multiple option.
      *
-     * @param  Closure(string): array<int|string, string>  $options
+     * @param Closure(string): array<int|string, string> $options
      * @return array<int|string>
      */
     function multisearch(
@@ -241,7 +241,7 @@ if (! function_exists('\Laravel\Prompts\spin')) {
      *
      * @template TReturn of mixed
      *
-     * @param  Closure(): TReturn  $callback
+     * @param Closure(): TReturn $callback
      * @return TReturn
      */
     function spin(Closure $callback, string $message = ''): mixed
@@ -326,9 +326,9 @@ if (! function_exists('\Laravel\Prompts\notify')) {
      *
      * The icon option is Linux only. The subtitle and sound options are macOS only.
      *
-     * @param  string  $subtitle  macOS only
-     * @param  string  $sound  macOS only
-     * @param  string  $icon  Linux only
+     * @param string $subtitle macOS only
+     * @param string $sound macOS only
+     * @param string $icon Linux only
      */
     function notify(string $title, string $body = '', string $subtitle = '', string $sound = '', string $icon = ''): void
     {
@@ -340,8 +340,8 @@ if (! function_exists('\Laravel\Prompts\table')) {
     /**
      * Display a table.
      *
-     * @param  array<int, string|array<int, string>>|Collection<int, string|array<int, string>>  $headers
-     * @param  array<int, array<int, string>>|Collection<int, array<int, string>>  $rows
+     * @param array<int, string|array<int, string>>|Collection<int, string|array<int, string>> $headers
+     * @param array<int, array<int, string>>|Collection<int, array<int, string>> $rows
      */
     function table(array|Collection $headers = [], array|Collection|null $rows = null): void
     {
@@ -353,7 +353,7 @@ if (! function_exists('\Laravel\Prompts\grid')) {
     /**
      * Display a grid.
      *
-     * @param  array<int, string>|Collection<int, string>  $items
+     * @param array<int, string>|Collection<int, string> $items
      */
     function grid(array|Collection $items = [], ?int $maxWidth = null): void
     {
@@ -368,8 +368,8 @@ if (! function_exists('\Laravel\Prompts\progress')) {
      * @template TSteps of iterable<mixed>|int
      * @template TReturn
      *
-     * @param  TSteps  $steps
-     * @param  ?Closure((TSteps is int ? int : value-of<TSteps>), Progress<TSteps>): TReturn  $callback
+     * @param TSteps $steps
+     * @param  ?Closure((TSteps is int ? int : value-of<TSteps>), Progress<TSteps>): TReturn $callback
      * @return ($callback is null ? Progress<TSteps> : array<TReturn>)
      */
     function progress(
@@ -421,7 +421,7 @@ if (! function_exists('\Laravel\Prompts\task')) {
      *
      * @template TReturn of mixed
      *
-     * @param  Closure(Support\Logger): TReturn  $callback
+     * @param Closure(Support\Logger): TReturn $callback
      * @return TReturn
      */
     function task(string $label, Closure $callback, ?int $limit = null): mixed
@@ -434,8 +434,17 @@ if (! function_exists('\Laravel\Prompts\datatable')) {
     /**
      * Display an interactive data table.
      *
-     * @param  array<int, string|array<int, string>>|Collection<int, string|array<int, string>>  $headers
-     * @param  array<int|string, array<int, string>>|Collection<int|string, array<int, string>>|null  $rows
+     * @param array<int, string|array<int, string>>|Collection<int, string|array<int, string>> $headers
+     * @param array<int|string, array<int, string>>|Collection<int|string, array<int, string>>|null $rows
+     * @param array<int|string, string|bool|array{
+     *     type?: string,
+     *     enabled?: bool,
+     *     pattern?: string|array<int, string>,
+     *     date_pattern?: string|array<int, string>,
+     *     format?: string|array<int, string>,
+     *     formats?: array<int, string>,
+     *     date_formats?: array<int, string>
+     * }>|null $sort
      */
     function datatable(
         array|Collection $headers = [],
@@ -447,6 +456,7 @@ if (! function_exists('\Laravel\Prompts\datatable')) {
         mixed $validate = null,
         ?Closure $transform = null,
         ?Closure $filter = null,
+        ?array $sort = null,
     ): mixed {
         return (new DataTablePrompt(
             headers: $headers,
@@ -458,6 +468,7 @@ if (! function_exists('\Laravel\Prompts\datatable')) {
             validate: $validate,
             transform: $transform,
             filter: $filter,
+            sort: $sort,
         ))->prompt();
     }
 }

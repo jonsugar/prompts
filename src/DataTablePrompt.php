@@ -4,6 +4,10 @@ namespace Laravel\Prompts;
 
 use Closure;
 use Illuminate\Support\Collection;
+use Laravel\Prompts\DataTable\Modes\BrowseMode;
+use Laravel\Prompts\DataTable\Modes\SearchMode;
+use Laravel\Prompts\DataTable\Modes\SortMode;
+use Laravel\Prompts\DataTable\TableState;
 
 class DataTablePrompt extends Prompt
 {
@@ -25,6 +29,11 @@ class DataTablePrompt extends Prompt
     public array $rows;
 
     /**
+     * Datatable UI and sorting state.
+     */
+    public TableState $tableState;
+
+    /**
      * The cached filtered rows.
      *
      * @var array<int|string, array<int, string>>|null
@@ -32,15 +41,24 @@ class DataTablePrompt extends Prompt
     protected ?array $filteredCache = null;
 
     /**
-     * The previous search query (for cache invalidation).
+     * The previous cache key (query + sort state).
      */
-    protected string $previousQuery = '';
+    protected string $previousCacheKey = '';
 
     /**
      * Create a new DataTable instance.
      *
-     * @param  array<int, string|array<int, string>>|Collection<int, string|array<int, string>>  $headers
-     * @param  array<int|string, array<int, string>>|Collection<int|string, array<int, string>>|null  $rows
+     * @param array<int, string|array<int, string>>|Collection<int, string|array<int, string>> $headers
+     * @param array<int|string, array<int, string>>|Collection<int|string, array<int, string>>|null $rows
+     * @param array<int|string, string|bool|array{
+     *     type?: string,
+     *     enabled?: bool,
+     *     pattern?: string|array<int, string>,
+     *     date_pattern?: string|array<int, string>,
+     *     format?: string|array<int, string>,
+     *     formats?: array<int, string>,
+     *     date_formats?: array<int, string>
+     * }>|null $sort
      *
      * @phpstan-param ($rows is null ? list<list<string>>|Collection<int, list<string>> : list<string|list<string>>|Collection<int, string|list<string>>) $headers
      */
@@ -54,6 +72,7 @@ class DataTablePrompt extends Prompt
         public mixed $validate = null,
         public ?Closure $transform = null,
         public ?Closure $filter = null,
+        public ?array $sort = null,
     ) {
         if ($rows === null) {
             $rows = $headers;
@@ -62,24 +81,23 @@ class DataTablePrompt extends Prompt
 
         $this->headers = $headers instanceof Collection ? $headers->all() : $headers;
         $this->rows = $rows instanceof Collection ? $rows->all() : $rows;
+        $this->tableState = new TableState($this->headers, $this->rows, $sort);
 
         $this->initializeScrolling(0);
 
         $this->trackTypedValue(
             submit: false,
-            ignore: fn ($key) => $this->state !== 'search',
+            ignore: fn (string $key) => ! $this->tableState->mode()->acceptsTypedInput()
+                || ($this->isSearchMode() && $key === Key::CTRL_H),
         );
 
-        $this->on('key', fn ($key) => match ($this->state) {
-            'search' => $this->handleSearchKey($key),
-            default => $this->handleBrowseKey($key),
-        });
+        $this->on('key', fn (string $key) => $this->tableState->mode()->handleKey($this, $key));
     }
 
     /**
      * Handle key presses in browse mode.
      */
-    protected function handleBrowseKey(string $key): void
+    public function handleBrowseKey(string $key): void
     {
         $total = count($this->filteredRows());
 
@@ -91,7 +109,9 @@ class DataTablePrompt extends Prompt
             Key::oneOf([Key::HOME, Key::CTRL_A], $key) => $this->highlight(0),
             Key::oneOf([Key::END, Key::CTRL_E], $key) => $this->highlight(max(0, $total - 1)),
             Key::ENTER => $total > 0 ? $this->submit() : null,
-            '/' => $this->enterSearch(),
+            '/' => $this->enterSearchMode(),
+            's' => $this->enterSortMode(),
+            'h' => $this->tableState->toggleHelp(),
             default => null,
         };
     }
@@ -99,31 +119,44 @@ class DataTablePrompt extends Prompt
     /**
      * Handle key presses in search mode.
      */
-    protected function handleSearchKey(string $key): void
+    public function handleSearchKey(string $key): void
     {
         match ($key) {
-            Key::ENTER => $this->exitSearch(),
-            Key::ESCAPE => $this->cancelSearch(),
-            default => $this->search(),
+            Key::ENTER => $this->exitSearchMode(),
+            Key::ESCAPE => $this->cancelSearchMode(),
+            Key::CTRL_H => $this->tableState->toggleHelp(),
+            default => $this->refreshSearchResults(),
+        };
+    }
+
+    /**
+     * Handle key presses in sort mode.
+     */
+    public function handleSortKey(string $key): void
+    {
+        match ($key) {
+            Key::ENTER, Key::ESCAPE, 's' => $this->enterBrowseMode(),
+            '/' => $this->enterSearchMode(),
+            'h' => $this->tableState->toggleHelp(),
+            default => $this->applySortShortcut($key) ? $this->enterBrowseMode() : null,
         };
     }
 
     /**
      * Enter search mode.
      */
-    protected function enterSearch(): void
+    public function enterSearchMode(): void
     {
-        $this->state = 'search';
-        $this->typedValue = '';
-        $this->cursorPosition = 0;
+        $this->tableState->setMode(new SearchMode);
+        $this->cursorPosition = mb_strlen($this->typedValue);
     }
 
     /**
      * Exit search mode, keeping the filtered results.
      */
-    protected function exitSearch(): void
+    public function exitSearchMode(): void
     {
-        $this->state = 'active';
+        $this->tableState->setMode(new BrowseMode);
         $this->highlighted = 0;
         $this->firstVisible = 0;
     }
@@ -131,13 +164,12 @@ class DataTablePrompt extends Prompt
     /**
      * Cancel search, clearing the query and showing all rows.
      */
-    protected function cancelSearch(): void
+    public function cancelSearchMode(): void
     {
-        $this->state = 'active';
+        $this->tableState->setMode(new BrowseMode);
         $this->typedValue = '';
         $this->cursorPosition = 0;
-        $this->filteredCache = null;
-        $this->previousQuery = '';
+        $this->invalidateFilteredRows();
         $this->highlighted = 0;
         $this->firstVisible = 0;
     }
@@ -145,11 +177,108 @@ class DataTablePrompt extends Prompt
     /**
      * Handle typing in search mode.
      */
-    protected function search(): void
+    public function refreshSearchResults(): void
     {
-        $this->filteredCache = null;
+        $this->invalidateFilteredRows();
         $this->highlighted = 0;
         $this->firstVisible = 0;
+    }
+
+    /**
+     * Enter sort mode.
+     */
+    public function enterSortMode(): void
+    {
+        if (! $this->tableState->hasSortableColumns()) {
+            return;
+        }
+
+        $this->tableState->setMode(new SortMode);
+    }
+
+    /**
+     * Return to browse mode.
+     */
+    public function enterBrowseMode(): void
+    {
+        $this->tableState->setMode(new BrowseMode);
+    }
+
+    /**
+     * Apply sorting by mode shortcut.
+     */
+    public function applySortShortcut(string $key): bool
+    {
+        $applied = $this->tableState->applySortShortcut($key);
+
+        if (! $applied) {
+            return false;
+        }
+
+        $this->invalidateFilteredRows();
+        $this->highlighted = 0;
+        $this->firstVisible = 0;
+
+        return true;
+    }
+
+    /**
+     * Determine whether search mode is active.
+     */
+    public function isSearchMode(): bool
+    {
+        return $this->tableState->mode() instanceof SearchMode;
+    }
+
+    /**
+     * Determine whether sort mode is active.
+     */
+    public function isSortMode(): bool
+    {
+        return $this->tableState->mode() instanceof SortMode;
+    }
+
+    /**
+     * Determine whether help text is visible.
+     */
+    public function isHelpVisible(): bool
+    {
+        return $this->tableState->helpVisible;
+    }
+
+    /**
+     * Help text for the current mode.
+     */
+    public function helpText(): string
+    {
+        return $this->tableState->mode()->helpText().' | '.$this->tableState->sortSummary();
+    }
+
+    /**
+     * Header titles for display.
+     *
+     * @return array<int, string>
+     */
+    public function displayHeaders(): array
+    {
+        return $this->tableState->displayHeaders();
+    }
+
+    /**
+     * Number of available columns.
+     */
+    public function columnCount(): int
+    {
+        return count($this->tableState->columns);
+    }
+
+    /**
+     * Invalidate filtered rows cache.
+     */
+    protected function invalidateFilteredRows(): void
+    {
+        $this->filteredCache = null;
+        $this->previousCacheKey = '';
     }
 
     /**
@@ -159,30 +288,32 @@ class DataTablePrompt extends Prompt
      */
     public function filteredRows(): array
     {
-        if ($this->filteredCache !== null && $this->previousQuery === $this->typedValue) {
+        $cacheKey = $this->typedValue.'|'.$this->tableState->sortCacheKey();
+
+        if ($this->filteredCache !== null && $this->previousCacheKey === $cacheKey) {
             return $this->filteredCache;
         }
 
-        $this->previousQuery = $this->typedValue;
+        $this->previousCacheKey = $cacheKey;
 
         if ($this->typedValue === '') {
-            return $this->filteredCache = $this->rows;
+            return $this->filteredCache = $this->tableState->applySorting($this->rows);
         }
 
         if ($this->filter !== null) {
-            return $this->filteredCache = array_filter(
+            return $this->filteredCache = $this->tableState->applySorting(array_filter(
                 $this->rows,
-                fn ($row) => ($this->filter)($row, $this->typedValue),
-            );
+                fn (array $row) => ($this->filter)($row, $this->typedValue),
+            ));
         }
 
-        return $this->filteredCache = array_filter(
+        return $this->filteredCache = $this->tableState->applySorting(array_filter(
             $this->rows,
-            fn ($row) => str_contains(
+            fn (array $row) => str_contains(
                 mb_strtolower(implode(' ', $row)),
                 mb_strtolower($this->typedValue),
             ),
-        );
+        ));
     }
 
     /**
