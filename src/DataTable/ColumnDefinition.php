@@ -2,6 +2,8 @@
 
 namespace Laravel\Prompts\DataTable;
 
+use Closure;
+
 class ColumnDefinition
 {
     /**
@@ -14,6 +16,7 @@ class ColumnDefinition
         public string $type = ColumnType::ALPHA,
         public ?string $shortcut = null,
         public array $datePatterns = [],
+        public ?Closure $displayFormatter = null,
     ) {
     }
 }

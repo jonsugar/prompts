@@ -613,6 +613,71 @@ it('sorts numeric columns using configured type', function () {
     Prompt::assertStrippedOutputContains('Age ↑');
 });
 
+it('formats numeric columns for display while preserving numeric sorting', function () {
+    Prompt::fake(['s', '2', Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Title', 'Revenue', 'Runtime'],
+        rows: [
+            'alpha' => ['Alpha', '876688482', '161'],
+            'beta' => ['Beta', '1200', '95'],
+            'gamma' => ['Gamma', '250', '45'],
+        ],
+        scroll: 5,
+        label: 'Sort movies',
+        sort: [
+            'Title' => 'alpha',
+            'Revenue' => [
+                'type' => 'numeric',
+                'display' => [
+                    'type' => 'currency',
+                    'symbol' => '$',
+                ],
+            ],
+            'Runtime' => [
+                'type' => 'numeric',
+                'display' => 'duration',
+            ],
+        ],
+    );
+
+    expect($result)->toBe('gamma');
+    Prompt::assertStrippedOutputContains('$876,688,482');
+    Prompt::assertStrippedOutputContains('2 hours 41 minutes');
+});
+
+it('formats columns with printf patterns and keeps numeric sorting based on raw values', function () {
+    Prompt::fake(['s', '2', Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Title', 'Revenue'],
+        rows: [
+            'alpha' => ['Alpha', '1200'],
+            'beta' => ['Beta', '250'],
+            'gamma' => ['Gamma', '3000'],
+        ],
+        scroll: 5,
+        label: 'Sort movies',
+        sort: [
+            'Title' => [
+                'type' => 'alpha',
+                'display' => [
+                    'type' => 'printf',
+                    'pattern' => 'Movie: %s',
+                ],
+            ],
+            'Revenue' => [
+                'type' => 'numeric',
+                'display' => '%d (USD)',
+            ],
+        ],
+    );
+
+    expect($result)->toBe('beta');
+    Prompt::assertStrippedOutputContains('Movie: Alpha');
+    Prompt::assertStrippedOutputContains('1200 (USD)');
+});
+
 it('toggles sort direction when sorting the same column again', function () {
     Prompt::fake(['s', '1', 's', '1', Key::ENTER]);
 
@@ -684,8 +749,8 @@ it('sorts alpha-numeric columns naturally', function () {
     expect($result)->toBe('v1');
 });
 
-it('shows help text when toggled', function () {
-    Prompt::fake(['h', Key::ENTER]);
+it('shows browse mode help text by default', function () {
+    Prompt::fake([Key::ENTER]);
 
     datatable(
         headers: ['Version'],
@@ -701,24 +766,7 @@ it('shows help text when toggled', function () {
     Prompt::assertStrippedOutputContains('[Enter] select');
 });
 
-it('shows a browse help prompt with the correct key before help is toggled', function () {
-    Prompt::fake([Key::ENTER]);
-
-    datatable(
-        headers: ['Version'],
-        rows: [
-            ['v10'],
-            ['v2'],
-        ],
-        scroll: 5,
-        label: 'Sort versions',
-        sort: ['Version' => 'alpha-numeric'],
-    );
-
-    Prompt::assertStrippedOutputContains('Press h to show help');
-});
-
-it('shows the ctrl+h help prompt in search mode', function () {
+it('shows search mode help text while searching', function () {
     Prompt::fake(['/', 'v', Key::ENTER, Key::ENTER]);
 
     datatable(
@@ -732,11 +780,11 @@ it('shows the ctrl+h help prompt in search mode', function () {
         sort: ['Version' => 'alpha-numeric'],
     );
 
-    Prompt::assertStrippedOutputContains('Press Ctrl+H to show help');
+    Prompt::assertStrippedOutputContains('Type to filter | Enter: keep filter');
 });
 
-it('replaces the help prompt with full help text when help is toggled', function () {
-    Prompt::fake(['h', Key::ENTER]);
+it('shows sort mode help text while in sort mode', function () {
+    Prompt::fake(['s', Key::ENTER, Key::ENTER]);
 
     datatable(
         headers: ['Version'],
@@ -749,8 +797,5 @@ it('replaces the help prompt with full help text when help is toggled', function
         sort: ['Version' => 'alpha-numeric'],
     );
 
-    $content = Prompt::strippedContent();
-
-    expect($content)->toContain('Press h to show help')
-        ->and($content)->toContain('[Enter] select');
+    Prompt::assertStrippedOutputContains('Press a header shortcut to sort');
 });

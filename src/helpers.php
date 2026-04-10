@@ -443,7 +443,26 @@ if (! function_exists('\Laravel\Prompts\datatable')) {
      *     date_pattern?: string|array<int, string>,
      *     format?: string|array<int, string>,
      *     formats?: array<int, string>,
-     *     date_formats?: array<int, string>
+     *     date_formats?: array<int, string>,
+     *     display?: string|Closure(string, array<int, string>): string|array{
+     *         type?: string,
+     *         pattern?: string,
+     *         template?: string,
+     *         symbol?: string,
+     *         currency?: string,
+     *         locale?: string,
+     *         decimals?: int,
+     *         unit?: string,
+     *         decimal_separator?: string,
+     *         thousands_separator?: string
+     *     },
+     *     symbol?: string,
+     *     currency?: string,
+     *     locale?: string,
+     *     decimals?: int,
+     *     unit?: string,
+     *     decimal_separator?: string,
+     *     thousands_separator?: string
      * }>|null $sort
      */
     function datatable(

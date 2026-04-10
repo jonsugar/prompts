@@ -2,6 +2,7 @@
 
 namespace Laravel\Prompts\DataTable;
 
+use Closure;
 use DateTimeImmutable;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
@@ -125,7 +126,7 @@ class TableState
             return 'none';
         }
 
-        return $this->sortSelection->columnIndex.'|'.$this->sortSelection->direction;
+        return $this->sortSelection->columnIndex . '|' . $this->sortSelection->direction;
     }
 
     /**
@@ -134,7 +135,7 @@ class TableState
     public function displayHeaders(): array
     {
         return array_map(
-            fn (ColumnDefinition $column) => $this->displayHeaderForColumn($column),
+            fn(ColumnDefinition $column) => $this->displayHeaderForColumn($column),
             $this->columns
         );
     }
@@ -211,6 +212,49 @@ class TableState
     }
 
     /**
+     * Apply display formatting to all rows.
+     *
+     * @param array<int|string, array<int, string>> $rows
+     * @return array<int|string, array<int, string>>
+     */
+    public function formatRowsForDisplay(array $rows): array
+    {
+        $formatted = [];
+
+        foreach ($rows as $key => $row) {
+            $formatted[$key] = $this->formatRowForDisplay($row);
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Apply display formatting to a single row.
+     *
+     * @param array<int, string> $row
+     * @return array<int, string>
+     */
+    public function formatRowForDisplay(array $row): array
+    {
+        $formatted = $row;
+
+        foreach ($this->columns as $column) {
+            $rawValue = $this->stringifyValue($row[$column->index] ?? '');
+
+            if ($column->displayFormatter === null) {
+                $formatted[$column->index] = $rawValue;
+
+                continue;
+            }
+
+            $formattedValue = ($column->displayFormatter)($rawValue, $row);
+            $formatted[$column->index] = $this->stringifyValue($formattedValue);
+        }
+
+        return $formatted;
+    }
+
+    /**
      * Resolve the title for a column.
      */
     public function columnTitle(int $index): string
@@ -246,6 +290,7 @@ class TableState
                 type: $type ?? ColumnType::ALPHA,
                 shortcut: $sortable ? $this->shortcutForPosition($sortablePosition++) : null,
                 datePatterns: $sortDefinition['date_patterns'] ?? [],
+                displayFormatter: $sortDefinition['display_formatter'] ?? null,
             );
         }
 
@@ -284,13 +329,13 @@ class TableState
             return $header;
         }
 
-        return 'Column '.($index + 1);
+        return 'Column ' . ($index + 1);
     }
 
     /**
      * @param array<int, string|array<int, string>> $headers
      * @param array<int|string, string|bool|array<string, mixed>>|null $sortConfiguration
-     * @return array<int, array{type: string, date_patterns: array<int, string>}>
+     * @return array<int, array{type: string, date_patterns: array<int, string>, display_formatter: Closure(string, array<int, string>): string|null}>
      */
     protected function normalizeSortConfiguration(array $headers, int $columnCount, ?array $sortConfiguration): array
     {
@@ -305,6 +350,7 @@ class TableState
                 $allSortable[$index] = [
                     'type' => ColumnType::ALPHA,
                     'date_patterns' => [],
+                    'display_formatter' => null,
                 ];
             }
 
@@ -335,7 +381,7 @@ class TableState
             $index = null;
 
             if (is_int($column) || (is_string($column) && ctype_digit($column))) {
-                $index = (int) $column;
+                $index = (int)$column;
             } elseif (is_string($column)) {
                 $index = $this->columnIndexFromHeader($headers, $column);
             }
@@ -356,13 +402,13 @@ class TableState
 
     /**
      * @param string|bool|array<string, mixed> $value
-     * @return array{type: string, date_patterns: array<int, string>}|null
+     * @return array{type: string, date_patterns: array<int, string>, display_formatter: Closure(string, array<int, string>): string|null}|null
      */
     protected function resolveColumnSortConfiguration(string|bool|array $value): ?array
     {
         if (is_bool($value)) {
             return $value
-                ? ['type' => ColumnType::ALPHA, 'date_patterns' => []]
+                ? ['type' => ColumnType::ALPHA, 'date_patterns' => [], 'display_formatter' => null]
                 : null;
         }
 
@@ -370,6 +416,7 @@ class TableState
             return [
                 'type' => ColumnType::normalize($value),
                 'date_patterns' => [],
+                'display_formatter' => null,
             ];
         }
 
@@ -386,6 +433,7 @@ class TableState
             'date_patterns' => $configuredType === ColumnType::DATE
                 ? $this->resolveDatePatterns($value)
                 : [],
+            'display_formatter' => $this->resolveDisplayFormatter($value),
         ];
     }
 
@@ -419,6 +467,254 @@ class TableState
         }
 
         return array_values(array_unique($patterns));
+    }
+
+    /**
+     * @param array<string, mixed> $configuration
+     * @return Closure(string, array<int, string>): string|null
+     */
+    protected function resolveDisplayFormatter(array $configuration): ?Closure
+    {
+        $display = $configuration['display'] ?? null;
+
+        if ($display === null) {
+            return null;
+        }
+
+        if (is_callable($display)) {
+            return fn(string $value, array $row): string => $this->stringifyValue($display($value, $row));
+        }
+
+        if (is_string($display)) {
+            if ($this->looksLikePrintfPattern($display)) {
+                return $this->resolvePrintfDisplayFormatter($display);
+            }
+
+            $options = $this->resolveDisplayFormatterOptions($configuration);
+            $formatter = $this->normalizeDisplayFormatterName($display, $options);
+
+            return match ($formatter) {
+                'currency' => $this->resolveCurrencyDisplayFormatter($options),
+                'duration' => $this->resolveDurationDisplayFormatter($options),
+                'printf' => $this->resolvePrintfDisplayFormatter((string) ($options['pattern'] ?? '')),
+                default => null,
+            };
+        }
+
+        if (! is_array($display)) {
+            return null;
+        }
+
+        $options = $this->resolveDisplayFormatterOptions($display);
+        $formatter = $this->normalizeDisplayFormatterName(
+            (string)($display['type'] ?? $display['format'] ?? $display['name'] ?? ''),
+            $options
+        );
+
+        return match ($formatter) {
+            'currency' => $this->resolveCurrencyDisplayFormatter($options),
+            'duration' => $this->resolveDurationDisplayFormatter($options),
+            'printf' => $this->resolvePrintfDisplayFormatter((string) ($display['pattern'] ?? $display['template'] ?? '')),
+            default => null,
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    protected function normalizeDisplayFormatterName(string $name, array &$options): string
+    {
+        $name = strtolower(trim($name));
+
+        if ($name === '') {
+            return '';
+        }
+
+        if (str_contains($name, ':')) {
+            [$base, $modifier] = explode(':', $name, 2);
+
+            if ($base === 'currency' && $modifier !== '' && ! isset($options['symbol'])) {
+                $options['symbol'] = $modifier;
+            }
+
+            if ($base === 'duration' && $modifier !== '' && ! isset($options['unit'])) {
+                $options['unit'] = $modifier;
+            }
+
+            $name = $base;
+        }
+
+        return match ($name) {
+            'currency', 'money', 'usd' => 'currency',
+            'duration', 'runtime', 'minutes' => 'duration',
+            'printf', 'sprintf', 'pattern', 'template' => 'printf',
+            default => $name,
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    protected function resolveDisplayFormatterOptions(array $source): array
+    {
+        $options = [];
+
+        foreach (['symbol', 'currency', 'locale', 'decimals', 'unit', 'pattern', 'template', 'decimal_separator', 'thousands_separator'] as $key) {
+            if (array_key_exists($key, $source)) {
+                $options[$key] = $source[$key];
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return Closure(string, array<int, string>): string
+     */
+    protected function resolveCurrencyDisplayFormatter(array $options): Closure
+    {
+        $symbol = is_string($options['symbol'] ?? null) ? $options['symbol'] : '$';
+        $currency = is_string($options['currency'] ?? null) && trim($options['currency']) !== ''
+            ? strtoupper(trim($options['currency']))
+            : 'USD';
+        $locale = is_string($options['locale'] ?? null) && trim($options['locale']) !== ''
+            ? trim($options['locale'])
+            : 'en_US';
+        $decimals = is_int($options['decimals'] ?? null) ? $options['decimals'] : 0;
+        $decimalSeparator = is_string($options['decimal_separator'] ?? null) ? $options['decimal_separator'] : '.';
+        $thousandsSeparator = is_string($options['thousands_separator'] ?? null) ? $options['thousands_separator'] : ',';
+        $numberFormatter = $this->resolveCurrencyNumberFormatter(
+            locale: $locale,
+            symbol: $symbol,
+            decimals: $decimals,
+            decimalSeparator: $decimalSeparator,
+            thousandsSeparator: $thousandsSeparator,
+        );
+
+        return function (string $value) use ($currency, $symbol, $decimals, $decimalSeparator, $thousandsSeparator, $numberFormatter): string {
+            $numeric = $this->parseNumeric($value);
+
+            if ($numeric === null) {
+                return $value;
+            }
+
+            if ($numberFormatter !== null) {
+                $formatted = $numberFormatter->formatCurrency($numeric, $currency);
+
+                if (is_string($formatted) && $formatted !== '') {
+                    return $formatted;
+                }
+            }
+
+            return $symbol . number_format(
+                    $numeric,
+                    max(0, $decimals),
+                    $decimalSeparator,
+                    $thousandsSeparator
+                );
+        };
+    }
+
+    /**
+     * @return Closure(string, array<int, string>): string
+     */
+    protected function resolvePrintfDisplayFormatter(string $pattern): Closure
+    {
+        return fn (string $value): string => sprintf($pattern, $value);
+    }
+
+    protected function looksLikePrintfPattern(string $display): bool
+    {
+        return str_contains($display, '%');
+    }
+
+    protected function resolveCurrencyNumberFormatter(
+        string $locale,
+        string $symbol,
+        int $decimals,
+        string $decimalSeparator,
+        string $thousandsSeparator,
+    ): ?\NumberFormatter {
+        if (! class_exists(\NumberFormatter::class)) {
+            return null;
+        }
+
+        $formatter = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
+        $safeDecimals = max(0, $decimals);
+
+        $formatter->setAttribute(\NumberFormatter::MIN_FRACTION_DIGITS, $safeDecimals);
+        $formatter->setAttribute(\NumberFormatter::MAX_FRACTION_DIGITS, $safeDecimals);
+
+        if ($symbol !== '') {
+            $formatter->setSymbol(\NumberFormatter::CURRENCY_SYMBOL, $symbol);
+        }
+
+        if ($decimalSeparator !== '') {
+            $formatter->setSymbol(\NumberFormatter::DECIMAL_SEPARATOR_SYMBOL, $decimalSeparator);
+        }
+
+        if ($thousandsSeparator !== '') {
+            $formatter->setSymbol(\NumberFormatter::GROUPING_SEPARATOR_SYMBOL, $thousandsSeparator);
+        }
+
+        return $formatter;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return Closure(string, array<int, string>): string
+     */
+    protected function resolveDurationDisplayFormatter(array $options): Closure
+    {
+        $unit = strtolower(trim((string)($options['unit'] ?? 'minutes')));
+        $unit = in_array($unit, ['seconds', 'second', 'sec', 's'], true) ? 'seconds' : 'minutes';
+
+        return function (string $value) use ($unit): string {
+            $numeric = $this->parseNumeric($value);
+
+            if ($numeric === null) {
+                return $value;
+            }
+
+            $absolute = (int)round(abs($numeric));
+            $negative = $numeric < 0;
+            $parts = [];
+
+            if ($unit === 'seconds') {
+                $hours = intdiv($absolute, 3600);
+                $minutes = intdiv($absolute % 3600, 60);
+                $seconds = $absolute % 60;
+
+                if ($hours > 0) {
+                    $parts[] = $hours . ' ' . ($hours === 1 ? 'hour' : 'hours');
+                }
+
+                if ($minutes > 0) {
+                    $parts[] = $minutes . ' ' . ($minutes === 1 ? 'minute' : 'minutes');
+                }
+
+                if ($seconds > 0 || $parts === []) {
+                    $parts[] = $seconds . ' ' . ($seconds === 1 ? 'second' : 'seconds');
+                }
+            } else {
+                $hours = intdiv($absolute, 60);
+                $minutes = $absolute % 60;
+
+                if ($hours > 0) {
+                    $parts[] = $hours . ' ' . ($hours === 1 ? 'hour' : 'hours');
+                }
+
+                if ($minutes > 0 || $parts === []) {
+                    $parts[] = $minutes . ' ' . ($minutes === 1 ? 'minute' : 'minutes');
+                }
+            }
+
+            $formatted = implode(' ', $parts);
+
+            return $negative ? '-' . $formatted : $formatted;
+        };
     }
 
     /**
@@ -497,6 +793,22 @@ class TableState
     }
 
     /**
+     * Normalize any scalar-like value to a string for display and comparisons.
+     */
+    protected function stringifyValue(mixed $value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_scalar($value) || (is_object($value) && method_exists($value, '__toString'))) {
+            return (string)$value;
+        }
+
+        return '';
+    }
+
+    /**
      * Parse a numeric value from a string.
      */
     protected function parseNumeric(string $value): ?float
@@ -512,7 +824,7 @@ class TableState
             return null;
         }
 
-        return (float) $normalized;
+        return (float)$normalized;
     }
 
     /**
@@ -530,7 +842,7 @@ class TableState
 
         if ($patterns !== []) {
             foreach ($patterns as $pattern) {
-                foreach ([$pattern, '!'.$pattern] as $candidatePattern) {
+                foreach ([$pattern, '!' . $pattern] as $candidatePattern) {
                     $date = DateTimeImmutable::createFromFormat($candidatePattern, $value);
                     $errors = DateTimeImmutable::getLastErrors();
 
@@ -569,10 +881,10 @@ class TableState
         $indicator = $this->sortIndicator($column->index);
 
         if ($this->mode->name() === SortMode::NAME && $column->sortable && $column->shortcut !== null) {
-            return '['.$column->shortcut.'] '.$column->title.($indicator === '' ? '' : ' '.$indicator);
+            return '[' . $column->shortcut . '] ' . $column->title . ($indicator === '' ? '' : ' ' . $indicator);
         }
 
-        return $column->title.($indicator === '' ? '' : ' '.$indicator);
+        return $column->title . ($indicator === '' ? '' : ' ' . $indicator);
     }
 
     /**
@@ -593,7 +905,7 @@ class TableState
     protected function shortcutForPosition(int $position): ?string
     {
         if ($position <= 9) {
-            return (string) $position;
+            return (string)$position;
         }
 
         $index = $position - 10;

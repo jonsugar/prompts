@@ -47,6 +47,25 @@ class DataTablePrompt extends Prompt
     protected string $previousCacheKey = '';
 
     /**
+     * Cached rows after applying display formatters.
+     *
+     * @var array<int|string, array<int, string>>|null
+     */
+    protected ?array $displayRowsCache = null;
+
+    /**
+     * Cached filtered rows after applying display formatters.
+     *
+     * @var array<int|string, array<int, string>>|null
+     */
+    protected ?array $displayFilteredCache = null;
+
+    /**
+     * The previous display cache key (query + sort state).
+     */
+    protected string $previousDisplayCacheKey = '';
+
+    /**
      * Create a new DataTable instance.
      *
      * @param array<int, string|array<int, string>>|Collection<int, string|array<int, string>> $headers
@@ -58,7 +77,26 @@ class DataTablePrompt extends Prompt
      *     date_pattern?: string|array<int, string>,
      *     format?: string|array<int, string>,
      *     formats?: array<int, string>,
-     *     date_formats?: array<int, string>
+     *     date_formats?: array<int, string>,
+     *     display?: string|Closure(string, array<int, string>): string|array{
+     *         type?: string,
+     *         pattern?: string,
+     *         template?: string,
+     *         symbol?: string,
+     *         currency?: string,
+     *         locale?: string,
+     *         decimals?: int,
+     *         unit?: string,
+     *         decimal_separator?: string,
+     *         thousands_separator?: string
+     *     },
+     *     symbol?: string,
+     *     currency?: string,
+     *     locale?: string,
+     *     decimals?: int,
+     *     unit?: string,
+     *     decimal_separator?: string,
+     *     thousands_separator?: string
      * }>|null $sort
      *
      * @phpstan-param ($rows is null ? list<list<string>>|Collection<int, list<string>> : list<string|list<string>>|Collection<int, string|list<string>>) $headers
@@ -338,6 +376,8 @@ class DataTablePrompt extends Prompt
     {
         $this->filteredCache = null;
         $this->previousCacheKey = '';
+        $this->displayFilteredCache = null;
+        $this->previousDisplayCacheKey = '';
     }
 
     /**
@@ -376,6 +416,38 @@ class DataTablePrompt extends Prompt
     }
 
     /**
+     * All rows with configured display formatting applied.
+     *
+     * @return array<int|string, array<int, string>>
+     */
+    public function displayRows(): array
+    {
+        if ($this->displayRowsCache !== null) {
+            return $this->displayRowsCache;
+        }
+
+        return $this->displayRowsCache = $this->tableState->formatRowsForDisplay($this->rows);
+    }
+
+    /**
+     * Filtered rows with configured display formatting applied.
+     *
+     * @return array<int|string, array<int, string>>
+     */
+    public function displayFilteredRows(): array
+    {
+        $cacheKey = $this->typedValue.'|'.$this->tableState->sortCacheKey();
+
+        if ($this->displayFilteredCache !== null && $this->previousDisplayCacheKey === $cacheKey) {
+            return $this->displayFilteredCache;
+        }
+
+        $this->previousDisplayCacheKey = $cacheKey;
+
+        return $this->displayFilteredCache = $this->tableState->formatRowsForDisplay($this->filteredRows());
+    }
+
+    /**
      * The currently visible rows.
      *
      * @return array<int|string, array<int, string>>
@@ -383,6 +455,16 @@ class DataTablePrompt extends Prompt
     public function visible(): array
     {
         return array_slice($this->filteredRows(), $this->firstVisible, $this->scroll, preserve_keys: true);
+    }
+
+    /**
+     * The currently visible rows with display formatting applied.
+     *
+     * @return array<int|string, array<int, string>>
+     */
+    public function displayVisible(): array
+    {
+        return array_slice($this->displayFilteredRows(), $this->firstVisible, $this->scroll, preserve_keys: true);
     }
 
     /**
@@ -436,6 +518,27 @@ class DataTablePrompt extends Prompt
         }
 
         $filtered = $this->filteredRows();
+        $keys = array_keys($filtered);
+
+        if (! isset($keys[$this->highlighted])) {
+            return null;
+        }
+
+        return $filtered[$keys[$this->highlighted]];
+    }
+
+    /**
+     * Get the selected display row.
+     *
+     * @return array<int, string>|null
+     */
+    public function displaySelectedRow(): ?array
+    {
+        if ($this->highlighted === null) {
+            return null;
+        }
+
+        $filtered = $this->displayFilteredRows();
         $keys = array_keys($filtered);
 
         if (! isset($keys[$this->highlighted])) {

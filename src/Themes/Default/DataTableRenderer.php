@@ -31,7 +31,7 @@ class DataTableRenderer extends Renderer implements Scrolling
      */
     protected function renderSubmit(DataTablePrompt $prompt, int $maxWidth): string
     {
-        $row = $prompt->selectedRow();
+        $row = $prompt->displaySelectedRow();
         $display = $row ? $this->truncate(implode(', ', $row), $maxWidth) : '';
 
         return $this
@@ -46,12 +46,12 @@ class DataTableRenderer extends Renderer implements Scrolling
      */
     protected function renderCancel(DataTablePrompt $prompt, int $maxWidth): string
     {
-        $filtered = $prompt->filteredRows();
-        $visible = $prompt->visible();
+        $filtered = $prompt->displayFilteredRows();
+        $visible = $prompt->displayVisible();
         $headers = $prompt->displayHeaders();
         $numCols = $prompt->columnCount();
 
-        $widths = $this->computeColumnWidths($headers, $prompt->rows, $numCols, $maxWidth);
+        $widths = $this->computeColumnWidths($headers, $prompt->displayRows(), $numCols, $maxWidth);
         $innerWidth = array_sum($widths) + ($numCols * 2) + ($numCols - 1) + 2;
 
         // Top border (red)
@@ -100,14 +100,14 @@ class DataTableRenderer extends Renderer implements Scrolling
      */
     protected function renderActive(DataTablePrompt $prompt, int $maxWidth): string
     {
-        $filtered = $prompt->filteredRows();
+        $filtered = $prompt->displayFilteredRows();
         $total = count($filtered);
-        $visible = $prompt->visible();
+        $visible = $prompt->displayVisible();
         $headers = $prompt->displayHeaders();
         $numCols = $prompt->columnCount();
 
         // Compute column widths from ALL rows (not filtered) to prevent layout shift when searching
-        $widths = $this->computeColumnWidths($headers, $prompt->rows, $numCols, $maxWidth);
+        $widths = $this->computeColumnWidths($headers, $prompt->displayRows(), $numCols, $maxWidth);
 
         // Inner width between the outer │ chars:
         // cells (sum of w+2 padding each) + separators (numCols-1) + 2 (scrollbar area)
@@ -176,11 +176,7 @@ class DataTableRenderer extends Renderer implements Scrolling
             ->when(
                 $prompt->state === 'error',
                 fn() => $this->warning($this->truncate($prompt->error, $prompt->terminal()->cols() - 5)),
-                fn() => $this->when(
-                    $prompt->isHelpVisible(),
-                    fn() => $this->hint($this->truncate($prompt->helpText(), $prompt->terminal()->cols() - 5)),
-                    fn() => $this->hint($this->truncate($prompt->helpPromptText(), $prompt->terminal()->cols() - 5)),
-                ),
+                fn() => $this->hint($this->truncate($prompt->helpText(), $prompt->terminal()->cols() - 5)),
             );
     }
 
