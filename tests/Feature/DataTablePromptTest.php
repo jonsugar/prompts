@@ -698,6 +698,59 @@ it('shows help text when toggled', function () {
         sort: ['Version' => 'alpha-numeric'],
     );
 
-    Prompt::assertStrippedOutputContains('Enter: select');
-    Prompt::assertStrippedOutputContains('Sort: off');
+    Prompt::assertStrippedOutputContains('[Enter] select');
+});
+
+it('shows a browse help prompt with the correct key before help is toggled', function () {
+    Prompt::fake([Key::ENTER]);
+
+    datatable(
+        headers: ['Version'],
+        rows: [
+            ['v10'],
+            ['v2'],
+        ],
+        scroll: 5,
+        label: 'Sort versions',
+        sort: ['Version' => 'alpha-numeric'],
+    );
+
+    Prompt::assertStrippedOutputContains('Press h to show help');
+});
+
+it('shows the ctrl+h help prompt in search mode', function () {
+    Prompt::fake(['/', 'v', Key::ENTER, Key::ENTER]);
+
+    datatable(
+        headers: ['Version'],
+        rows: [
+            ['v10'],
+            ['v2'],
+        ],
+        scroll: 5,
+        label: 'Sort versions',
+        sort: ['Version' => 'alpha-numeric'],
+    );
+
+    Prompt::assertStrippedOutputContains('Press Ctrl+H to show help');
+});
+
+it('replaces the help prompt with full help text when help is toggled', function () {
+    Prompt::fake(['h', Key::ENTER]);
+
+    datatable(
+        headers: ['Version'],
+        rows: [
+            ['v10'],
+            ['v2'],
+        ],
+        scroll: 5,
+        label: 'Sort versions',
+        sort: ['Version' => 'alpha-numeric'],
+    );
+
+    $content = Prompt::strippedContent();
+
+    expect($content)->toContain('Press h to show help')
+        ->and($content)->toContain('[Enter] select');
 });

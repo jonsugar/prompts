@@ -5,6 +5,7 @@ namespace Laravel\Prompts;
 use Closure;
 use Illuminate\Support\Collection;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
+use Laravel\Prompts\DataTable\Modes\DataTableMode;
 use Laravel\Prompts\DataTable\Modes\SearchMode;
 use Laravel\Prompts\DataTable\Modes\SortMode;
 use Laravel\Prompts\DataTable\TableState;
@@ -88,7 +89,7 @@ class DataTablePrompt extends Prompt
         $this->trackTypedValue(
             submit: false,
             ignore: fn (string $key) => ! $this->tableState->mode()->acceptsTypedInput()
-                || ($this->isSearchMode() && $key === Key::CTRL_H),
+                || $key === Key::CTRL_H,
         );
 
         $this->on('key', fn (string $key) => $this->tableState->mode()->handleKey($this, $key));
@@ -99,21 +100,7 @@ class DataTablePrompt extends Prompt
      */
     public function handleBrowseKey(string $key): void
     {
-        $total = count($this->filteredRows());
-
-        match ($key) {
-            Key::UP, Key::UP_ARROW, Key::CTRL_P => $this->highlightPrevious($total),
-            Key::DOWN, Key::DOWN_ARROW, Key::CTRL_N => $this->highlightNext($total),
-            Key::PAGE_UP => $this->highlight(max(0, $this->highlighted - $this->scroll)),
-            Key::PAGE_DOWN => $this->highlight(min($total - 1, $this->highlighted + $this->scroll)),
-            Key::oneOf([Key::HOME, Key::CTRL_A], $key) => $this->highlight(0),
-            Key::oneOf([Key::END, Key::CTRL_E], $key) => $this->highlight(max(0, $total - 1)),
-            Key::ENTER => $total > 0 ? $this->submit() : null,
-            '/' => $this->enterSearchMode(),
-            's' => $this->enterSortMode(),
-            'h' => $this->tableState->toggleHelp(),
-            default => null,
-        };
+        (new BrowseMode)->handleKey($this, $key);
     }
 
     /**
@@ -121,12 +108,7 @@ class DataTablePrompt extends Prompt
      */
     public function handleSearchKey(string $key): void
     {
-        match ($key) {
-            Key::ENTER => $this->exitSearchMode(),
-            Key::ESCAPE => $this->cancelSearchMode(),
-            Key::CTRL_H => $this->tableState->toggleHelp(),
-            default => $this->refreshSearchResults(),
-        };
+        (new SearchMode)->handleKey($this, $key);
     }
 
     /**
@@ -134,12 +116,81 @@ class DataTablePrompt extends Prompt
      */
     public function handleSortKey(string $key): void
     {
-        match ($key) {
-            Key::ENTER, Key::ESCAPE, 's' => $this->enterBrowseMode(),
-            '/' => $this->enterSearchMode(),
-            'h' => $this->tableState->toggleHelp(),
-            default => $this->applySortShortcut($key) ? $this->enterBrowseMode() : null,
-        };
+        (new SortMode)->handleKey($this, $key);
+    }
+
+    /**
+     * Move the selection to the previous row.
+     */
+    public function highlightPreviousRow(): void
+    {
+        $this->highlightPrevious(count($this->filteredRows()));
+    }
+
+    /**
+     * Move the selection to the next row.
+     */
+    public function highlightNextRow(): void
+    {
+        $this->highlightNext(count($this->filteredRows()));
+    }
+
+    /**
+     * Move the selection one page up.
+     */
+    public function highlightPageUp(): void
+    {
+        $this->highlight(max(0, $this->highlighted - $this->scroll));
+    }
+
+    /**
+     * Move the selection one page down.
+     */
+    public function highlightPageDown(): void
+    {
+        $this->highlight(min(count($this->filteredRows()) - 1, $this->highlighted + $this->scroll));
+    }
+
+    /**
+     * Move the selection to the first row.
+     */
+    public function highlightFirstRow(): void
+    {
+        $this->highlight(0);
+    }
+
+    /**
+     * Move the selection to the last row.
+     */
+    public function highlightLastRow(): void
+    {
+        $this->highlight(max(0, count($this->filteredRows()) - 1));
+    }
+
+    /**
+     * Submit the highlighted row when rows are available.
+     */
+    public function submitIfRowAvailable(): void
+    {
+        if (count($this->filteredRows()) > 0) {
+            $this->submit();
+        }
+    }
+
+    /**
+     * Toggle the help hint visibility.
+     */
+    public function toggleHelp(): void
+    {
+        $this->tableState->toggleHelp();
+    }
+
+    /**
+     * Transition to another datatable interaction mode.
+     */
+    public function transitionTo(DataTableMode $mode): void
+    {
+        $this->tableState->setMode($mode);
     }
 
     /**
@@ -147,7 +198,7 @@ class DataTablePrompt extends Prompt
      */
     public function enterSearchMode(): void
     {
-        $this->tableState->setMode(new SearchMode);
+        $this->transitionTo(new SearchMode);
         $this->cursorPosition = mb_strlen($this->typedValue);
     }
 
@@ -156,7 +207,7 @@ class DataTablePrompt extends Prompt
      */
     public function exitSearchMode(): void
     {
-        $this->tableState->setMode(new BrowseMode);
+        $this->enterBrowseMode();
         $this->highlighted = 0;
         $this->firstVisible = 0;
     }
@@ -166,12 +217,10 @@ class DataTablePrompt extends Prompt
      */
     public function cancelSearchMode(): void
     {
-        $this->tableState->setMode(new BrowseMode);
+        $this->enterBrowseMode();
         $this->typedValue = '';
         $this->cursorPosition = 0;
-        $this->invalidateFilteredRows();
-        $this->highlighted = 0;
-        $this->firstVisible = 0;
+        $this->refreshSearchResults();
     }
 
     /**
@@ -193,7 +242,7 @@ class DataTablePrompt extends Prompt
             return;
         }
 
-        $this->tableState->setMode(new SortMode);
+        $this->transitionTo(new SortMode);
     }
 
     /**
@@ -201,7 +250,7 @@ class DataTablePrompt extends Prompt
      */
     public function enterBrowseMode(): void
     {
-        $this->tableState->setMode(new BrowseMode);
+        $this->transitionTo(new BrowseMode);
     }
 
     /**
@@ -227,7 +276,7 @@ class DataTablePrompt extends Prompt
      */
     public function isSearchMode(): bool
     {
-        return $this->tableState->mode() instanceof SearchMode;
+        return $this->tableState->mode()->name() === SearchMode::NAME;
     }
 
     /**
@@ -235,7 +284,7 @@ class DataTablePrompt extends Prompt
      */
     public function isSortMode(): bool
     {
-        return $this->tableState->mode() instanceof SortMode;
+        return $this->tableState->mode()->name() === SortMode::NAME;
     }
 
     /**
@@ -252,6 +301,16 @@ class DataTablePrompt extends Prompt
     public function helpText(): string
     {
         return $this->tableState->mode()->helpText().' | '.$this->tableState->sortSummary();
+    }
+
+    /**
+     * Help line shown when contextual help is hidden.
+     */
+    public function helpPromptText(): string
+    {
+        $message = 'Press '.$this->tableState->mode()->helpToggleKey().' to show help';
+
+        return $this->hint !== '' ? $this->hint.' | '.$message : $message;
     }
 
     /**

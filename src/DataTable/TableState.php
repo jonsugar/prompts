@@ -5,6 +5,7 @@ namespace Laravel\Prompts\DataTable;
 use DateTimeImmutable;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
+use Laravel\Prompts\DataTable\Modes\SortMode;
 
 class TableState
 {
@@ -567,7 +568,7 @@ class TableState
     {
         $indicator = $this->sortIndicator($column->index);
 
-        if ($this->mode->name() === 'sort' && $column->sortable && $column->shortcut !== null) {
+        if ($this->mode->name() === SortMode::NAME && $column->sortable && $column->shortcut !== null) {
             return '['.$column->shortcut.'] '.$column->title.($indicator === '' ? '' : ' '.$indicator);
         }
 

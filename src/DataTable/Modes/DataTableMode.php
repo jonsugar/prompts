@@ -25,4 +25,9 @@ interface DataTableMode
      * Help text shown when help is toggled.
      */
     public function helpText(): string;
+
+    /**
+     * Key label used to show help for this mode.
+     */
+    public function helpToggleKey(): string;
 }

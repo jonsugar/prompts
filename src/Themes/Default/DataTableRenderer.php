@@ -73,7 +73,7 @@ class DataTableRenderer extends Renderer implements Scrolling
 
             foreach ($widths as $i => $w) {
                 $text = $headers[$i] ?? '';
-                $headerCells[] = $this->dim(' ' . $this->pad($this->strikethrough($this->truncate((string) $text, $w)), $w) . ' ');
+                $headerCells[] = $this->dim(' ' . $this->pad($this->strikethrough($this->truncate((string)$text, $w)), $w) . ' ');
             }
 
             $headerLine = implode($this->red('│'), $headerCells) . '  ';
@@ -142,7 +142,7 @@ class DataTableRenderer extends Renderer implements Scrolling
 
                 foreach ($widths as $i => $w) {
                     $text = $headers[$i] ?? '';
-                    $headerCells[] = $this->dim(' ' . $this->pad($this->truncate((string) $text, $w), $w) . ' ');
+                    $headerCells[] = $this->dim(' ' . $this->pad($this->truncate((string)$text, $w), $w) . ' ');
                 }
 
                 $headerLine = implode($this->gray('│'), $headerCells) . '  ';
@@ -179,11 +179,7 @@ class DataTableRenderer extends Renderer implements Scrolling
                 fn() => $this->when(
                     $prompt->isHelpVisible(),
                     fn() => $this->hint($this->truncate($prompt->helpText(), $prompt->terminal()->cols() - 5)),
-                    fn() => $this->when(
-                        $prompt->hint,
-                        fn() => $this->hint($prompt->hint),
-                        fn() => $this->newLine(),
-                    ),
+                    fn() => $this->hint($this->truncate($prompt->helpPromptText(), $prompt->terminal()->cols() - 5)),
                 ),
             );
     }
