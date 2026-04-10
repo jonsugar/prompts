@@ -435,7 +435,7 @@ if (! function_exists('\Laravel\Prompts\datatable')) {
      * Display an interactive data table.
      *
      * @param array<int, string|array<int, string>>|Collection<int, string|array<int, string>> $headers
-     * @param array<int|string, array<int, string>>|Collection<int|string, array<int, string>>|null $rows
+     * @param array<int|string, array<int|string, scalar|\Stringable|null|array{raw?: mixed, display?: mixed}>>|Collection<int|string, array<int|string, scalar|\Stringable|null|array{raw?: mixed, display?: mixed}>>|null $rows
      * @param array<int|string, string|bool|array{
      *     type?: string,
      *     enabled?: bool,
@@ -444,25 +444,12 @@ if (! function_exists('\Laravel\Prompts\datatable')) {
      *     format?: string|array<int, string>,
      *     formats?: array<int, string>,
      *     date_formats?: array<int, string>,
-     *     display?: string|Closure(string, array<int, string>): string|array{
+     *     display?: string|Closure(string, array<int|string, string>): string|array{
      *         type?: string,
      *         pattern?: string,
-     *         template?: string,
-     *         symbol?: string,
-     *         currency?: string,
-     *         locale?: string,
-     *         decimals?: int,
-     *         unit?: string,
-     *         decimal_separator?: string,
-     *         thousands_separator?: string
+     *         template?: string
      *     },
-     *     symbol?: string,
-     *     currency?: string,
-     *     locale?: string,
-     *     decimals?: int,
-     *     unit?: string,
-     *     decimal_separator?: string,
-     *     thousands_separator?: string
+     *     template?: string
      * }>|null $sort
      */
     function datatable(

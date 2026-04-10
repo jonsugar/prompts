@@ -2,8 +2,8 @@
 
 namespace Laravel\Prompts\DataTable;
 
-use Closure;
 use DateTimeImmutable;
+use Laravel\Prompts\DataTable\Formatting\DisplayFormatterResolver;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
 use Laravel\Prompts\DataTable\Modes\SortMode;
@@ -30,13 +30,16 @@ class TableState
      */
     protected DataTableMode $mode;
 
+    protected DisplayFormatterResolver $displayFormatterResolver;
+
     /**
      * @param array<int, string|array<int, string>> $headers
-     * @param array<int|string, array<int, string>> $rows
+     * @param array<int|string, array<int|string, mixed>> $rows
      * @param array<int|string, string|bool|array<string, mixed>>|null $sortConfiguration
      */
     public function __construct(array $headers, array $rows, ?array $sortConfiguration = null)
     {
+        $this->displayFormatterResolver = new DisplayFormatterResolver;
         $this->columns = $this->buildColumns($headers, $rows, $sortConfiguration);
         $this->mode = new BrowseMode;
     }
@@ -163,8 +166,8 @@ class TableState
     }
 
     /**
-     * @param array<int|string, array<int, string>> $rows
-     * @return array<int|string, array<int, string>>
+     * @param array<int|string, array<int|string, mixed>> $rows
+     * @return array<int|string, array<int|string, mixed>>
      */
     public function applySorting(array $rows): array
     {
@@ -182,10 +185,12 @@ class TableState
         $position = 0;
 
         foreach ($rows as $key => $row) {
+            $rawRow = $this->normalizeRowForRawValues($row);
+
             $decorated[] = [
                 'key' => $key,
                 'row' => $row,
-                'value' => $row[$column->index] ?? '',
+                'value' => $rawRow[$column->index] ?? '',
                 'position' => $position++,
             ];
         }
@@ -214,7 +219,7 @@ class TableState
     /**
      * Apply display formatting to all rows.
      *
-     * @param array<int|string, array<int, string>> $rows
+     * @param array<int|string, array<int|string, mixed>> $rows
      * @return array<int|string, array<int, string>>
      */
     public function formatRowsForDisplay(array $rows): array
@@ -231,27 +236,51 @@ class TableState
     /**
      * Apply display formatting to a single row.
      *
-     * @param array<int, string> $row
+     * @param array<int|string, mixed> $row
      * @return array<int, string>
      */
     public function formatRowForDisplay(array $row): array
     {
-        $formatted = $row;
+        $formatted = [];
+        $rawRow = $this->normalizeRowForRawValues($row);
 
         foreach ($this->columns as $column) {
-            $rawValue = $this->stringifyValue($row[$column->index] ?? '');
+            $cell = $this->normalizeCell($row[$column->index] ?? '');
 
-            if ($column->displayFormatter === null) {
-                $formatted[$column->index] = $rawValue;
+            if ($cell['explicit_display']) {
+                $formatted[$column->index] = $cell['display'];
 
                 continue;
             }
 
-            $formattedValue = ($column->displayFormatter)($rawValue, $row);
+            if ($column->displayFormatter === null) {
+                $formatted[$column->index] = $cell['display'];
+
+                continue;
+            }
+
+            $formattedValue = $column->displayFormatter->format($cell['raw'], $rawRow);
             $formatted[$column->index] = $this->stringifyValue($formattedValue);
         }
 
         return $formatted;
+    }
+
+    /**
+     * Normalize row cells to raw values.
+     *
+     * @param array<int|string, mixed> $row
+     * @return array<int|string, string>
+     */
+    public function normalizeRowForRawValues(array $row): array
+    {
+        $normalized = [];
+
+        foreach ($row as $key => $cell) {
+            $normalized[$key] = $this->normalizeCell($cell)['raw'];
+        }
+
+        return $normalized;
     }
 
     /**
@@ -266,7 +295,7 @@ class TableState
      * Build internal column metadata.
      *
      * @param array<int, string|array<int, string>> $headers
-     * @param array<int|string, array<int, string>> $rows
+     * @param array<int|string, array<int|string, mixed>> $rows
      * @param array<int|string, string|bool|array<string, mixed>>|null $sortConfiguration
      * @return array<int, ColumnDefinition>
      */
@@ -299,7 +328,7 @@ class TableState
 
     /**
      * @param array<int, string|array<int, string>> $headers
-     * @param array<int|string, array<int, string>> $rows
+     * @param array<int|string, array<int|string, mixed>> $rows
      */
     protected function columnCount(array $headers, array $rows): int
     {
@@ -335,7 +364,7 @@ class TableState
     /**
      * @param array<int, string|array<int, string>> $headers
      * @param array<int|string, string|bool|array<string, mixed>>|null $sortConfiguration
-     * @return array<int, array{type: string, date_patterns: array<int, string>, display_formatter: Closure(string, array<int, string>): string|null}>
+     * @return array<int, array{type: string, date_patterns: array<int, string>, display_formatter: \Laravel\Prompts\DataTable\Formatting\DisplayFormatter|null}>
      */
     protected function normalizeSortConfiguration(array $headers, int $columnCount, ?array $sortConfiguration): array
     {
@@ -402,7 +431,7 @@ class TableState
 
     /**
      * @param string|bool|array<string, mixed> $value
-     * @return array{type: string, date_patterns: array<int, string>, display_formatter: Closure(string, array<int, string>): string|null}|null
+     * @return array{type: string, date_patterns: array<int, string>, display_formatter: \Laravel\Prompts\DataTable\Formatting\DisplayFormatter|null}|null
      */
     protected function resolveColumnSortConfiguration(string|bool|array $value): ?array
     {
@@ -433,7 +462,7 @@ class TableState
             'date_patterns' => $configuredType === ColumnType::DATE
                 ? $this->resolveDatePatterns($value)
                 : [],
-            'display_formatter' => $this->resolveDisplayFormatter($value),
+            'display_formatter' => $this->displayFormatterResolver->resolve($value),
         ];
     }
 
@@ -467,254 +496,6 @@ class TableState
         }
 
         return array_values(array_unique($patterns));
-    }
-
-    /**
-     * @param array<string, mixed> $configuration
-     * @return Closure(string, array<int, string>): string|null
-     */
-    protected function resolveDisplayFormatter(array $configuration): ?Closure
-    {
-        $display = $configuration['display'] ?? null;
-
-        if ($display === null) {
-            return null;
-        }
-
-        if (is_callable($display)) {
-            return fn(string $value, array $row): string => $this->stringifyValue($display($value, $row));
-        }
-
-        if (is_string($display)) {
-            if ($this->looksLikePrintfPattern($display)) {
-                return $this->resolvePrintfDisplayFormatter($display);
-            }
-
-            $options = $this->resolveDisplayFormatterOptions($configuration);
-            $formatter = $this->normalizeDisplayFormatterName($display, $options);
-
-            return match ($formatter) {
-                'currency' => $this->resolveCurrencyDisplayFormatter($options),
-                'duration' => $this->resolveDurationDisplayFormatter($options),
-                'printf' => $this->resolvePrintfDisplayFormatter((string) ($options['pattern'] ?? '')),
-                default => null,
-            };
-        }
-
-        if (! is_array($display)) {
-            return null;
-        }
-
-        $options = $this->resolveDisplayFormatterOptions($display);
-        $formatter = $this->normalizeDisplayFormatterName(
-            (string)($display['type'] ?? $display['format'] ?? $display['name'] ?? ''),
-            $options
-        );
-
-        return match ($formatter) {
-            'currency' => $this->resolveCurrencyDisplayFormatter($options),
-            'duration' => $this->resolveDurationDisplayFormatter($options),
-            'printf' => $this->resolvePrintfDisplayFormatter((string) ($display['pattern'] ?? $display['template'] ?? '')),
-            default => null,
-        };
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     */
-    protected function normalizeDisplayFormatterName(string $name, array &$options): string
-    {
-        $name = strtolower(trim($name));
-
-        if ($name === '') {
-            return '';
-        }
-
-        if (str_contains($name, ':')) {
-            [$base, $modifier] = explode(':', $name, 2);
-
-            if ($base === 'currency' && $modifier !== '' && ! isset($options['symbol'])) {
-                $options['symbol'] = $modifier;
-            }
-
-            if ($base === 'duration' && $modifier !== '' && ! isset($options['unit'])) {
-                $options['unit'] = $modifier;
-            }
-
-            $name = $base;
-        }
-
-        return match ($name) {
-            'currency', 'money', 'usd' => 'currency',
-            'duration', 'runtime', 'minutes' => 'duration',
-            'printf', 'sprintf', 'pattern', 'template' => 'printf',
-            default => $name,
-        };
-    }
-
-    /**
-     * @param array<string, mixed> $source
-     * @return array<string, mixed>
-     */
-    protected function resolveDisplayFormatterOptions(array $source): array
-    {
-        $options = [];
-
-        foreach (['symbol', 'currency', 'locale', 'decimals', 'unit', 'pattern', 'template', 'decimal_separator', 'thousands_separator'] as $key) {
-            if (array_key_exists($key, $source)) {
-                $options[$key] = $source[$key];
-            }
-        }
-
-        return $options;
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     * @return Closure(string, array<int, string>): string
-     */
-    protected function resolveCurrencyDisplayFormatter(array $options): Closure
-    {
-        $symbol = is_string($options['symbol'] ?? null) ? $options['symbol'] : '$';
-        $currency = is_string($options['currency'] ?? null) && trim($options['currency']) !== ''
-            ? strtoupper(trim($options['currency']))
-            : 'USD';
-        $locale = is_string($options['locale'] ?? null) && trim($options['locale']) !== ''
-            ? trim($options['locale'])
-            : 'en_US';
-        $decimals = is_int($options['decimals'] ?? null) ? $options['decimals'] : 0;
-        $decimalSeparator = is_string($options['decimal_separator'] ?? null) ? $options['decimal_separator'] : '.';
-        $thousandsSeparator = is_string($options['thousands_separator'] ?? null) ? $options['thousands_separator'] : ',';
-        $numberFormatter = $this->resolveCurrencyNumberFormatter(
-            locale: $locale,
-            symbol: $symbol,
-            decimals: $decimals,
-            decimalSeparator: $decimalSeparator,
-            thousandsSeparator: $thousandsSeparator,
-        );
-
-        return function (string $value) use ($currency, $symbol, $decimals, $decimalSeparator, $thousandsSeparator, $numberFormatter): string {
-            $numeric = $this->parseNumeric($value);
-
-            if ($numeric === null) {
-                return $value;
-            }
-
-            if ($numberFormatter !== null) {
-                $formatted = $numberFormatter->formatCurrency($numeric, $currency);
-
-                if (is_string($formatted) && $formatted !== '') {
-                    return $formatted;
-                }
-            }
-
-            return $symbol . number_format(
-                    $numeric,
-                    max(0, $decimals),
-                    $decimalSeparator,
-                    $thousandsSeparator
-                );
-        };
-    }
-
-    /**
-     * @return Closure(string, array<int, string>): string
-     */
-    protected function resolvePrintfDisplayFormatter(string $pattern): Closure
-    {
-        return fn (string $value): string => sprintf($pattern, $value);
-    }
-
-    protected function looksLikePrintfPattern(string $display): bool
-    {
-        return str_contains($display, '%');
-    }
-
-    protected function resolveCurrencyNumberFormatter(
-        string $locale,
-        string $symbol,
-        int $decimals,
-        string $decimalSeparator,
-        string $thousandsSeparator,
-    ): ?\NumberFormatter {
-        if (! class_exists(\NumberFormatter::class)) {
-            return null;
-        }
-
-        $formatter = new \NumberFormatter($locale, \NumberFormatter::CURRENCY);
-        $safeDecimals = max(0, $decimals);
-
-        $formatter->setAttribute(\NumberFormatter::MIN_FRACTION_DIGITS, $safeDecimals);
-        $formatter->setAttribute(\NumberFormatter::MAX_FRACTION_DIGITS, $safeDecimals);
-
-        if ($symbol !== '') {
-            $formatter->setSymbol(\NumberFormatter::CURRENCY_SYMBOL, $symbol);
-        }
-
-        if ($decimalSeparator !== '') {
-            $formatter->setSymbol(\NumberFormatter::DECIMAL_SEPARATOR_SYMBOL, $decimalSeparator);
-        }
-
-        if ($thousandsSeparator !== '') {
-            $formatter->setSymbol(\NumberFormatter::GROUPING_SEPARATOR_SYMBOL, $thousandsSeparator);
-        }
-
-        return $formatter;
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     * @return Closure(string, array<int, string>): string
-     */
-    protected function resolveDurationDisplayFormatter(array $options): Closure
-    {
-        $unit = strtolower(trim((string)($options['unit'] ?? 'minutes')));
-        $unit = in_array($unit, ['seconds', 'second', 'sec', 's'], true) ? 'seconds' : 'minutes';
-
-        return function (string $value) use ($unit): string {
-            $numeric = $this->parseNumeric($value);
-
-            if ($numeric === null) {
-                return $value;
-            }
-
-            $absolute = (int)round(abs($numeric));
-            $negative = $numeric < 0;
-            $parts = [];
-
-            if ($unit === 'seconds') {
-                $hours = intdiv($absolute, 3600);
-                $minutes = intdiv($absolute % 3600, 60);
-                $seconds = $absolute % 60;
-
-                if ($hours > 0) {
-                    $parts[] = $hours . ' ' . ($hours === 1 ? 'hour' : 'hours');
-                }
-
-                if ($minutes > 0) {
-                    $parts[] = $minutes . ' ' . ($minutes === 1 ? 'minute' : 'minutes');
-                }
-
-                if ($seconds > 0 || $parts === []) {
-                    $parts[] = $seconds . ' ' . ($seconds === 1 ? 'second' : 'seconds');
-                }
-            } else {
-                $hours = intdiv($absolute, 60);
-                $minutes = $absolute % 60;
-
-                if ($hours > 0) {
-                    $parts[] = $hours . ' ' . ($hours === 1 ? 'hour' : 'hours');
-                }
-
-                if ($minutes > 0 || $parts === []) {
-                    $parts[] = $minutes . ' ' . ($minutes === 1 ? 'minute' : 'minutes');
-                }
-            }
-
-            $formatted = implode(' ', $parts);
-
-            return $negative ? '-' . $formatted : $formatted;
-        };
     }
 
     /**
@@ -790,6 +571,47 @@ class TableState
         }
 
         return strnatcasecmp($left, $right);
+    }
+
+    /**
+     * Resolve raw and display values for a cell.
+     *
+     * @return array{raw: string, display: string, explicit_display: bool}
+     */
+    protected function normalizeCell(mixed $cell): array
+    {
+        if (is_array($cell) && $this->isStructuredCell($cell)) {
+            $raw = array_key_exists('raw', $cell)
+                ? $cell['raw']
+                : ($cell['display'] ?? '');
+            $display = array_key_exists('display', $cell)
+                ? $cell['display']
+                : ($cell['raw'] ?? '');
+
+            return [
+                'raw' => $this->stringifyValue($raw),
+                'display' => $this->stringifyValue($display),
+                'explicit_display' => array_key_exists('display', $cell),
+            ];
+        }
+
+        $stringified = $this->stringifyValue($cell);
+
+        return [
+            'raw' => $stringified,
+            'display' => $stringified,
+            'explicit_display' => false,
+        ];
+    }
+
+    /**
+     * Determine whether a cell is a structured raw/display cell.
+     *
+     * @param array<int|string, mixed> $cell
+     */
+    protected function isStructuredCell(array $cell): bool
+    {
+        return array_key_exists('raw', $cell) || array_key_exists('display', $cell);
     }
 
     /**

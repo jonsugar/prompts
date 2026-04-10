@@ -10,6 +10,10 @@ use Laravel\Prompts\DataTable\Modes\SearchMode;
 use Laravel\Prompts\DataTable\Modes\SortMode;
 use Laravel\Prompts\DataTable\TableState;
 
+/**
+ * @phpstan-type DataTableCell scalar|\Stringable|null|array{raw?: mixed, display?: mixed}
+ * @phpstan-type DataTableRow array<int|string, DataTableCell>
+ */
 class DataTablePrompt extends Prompt
 {
     use Concerns\Scrolling;
@@ -25,7 +29,7 @@ class DataTablePrompt extends Prompt
     /**
      * The table rows.
      *
-     * @var array<int|string, array<int, string>>
+     * @var array<int|string, DataTableRow>
      */
     public array $rows;
 
@@ -37,7 +41,7 @@ class DataTablePrompt extends Prompt
     /**
      * The cached filtered rows.
      *
-     * @var array<int|string, array<int, string>>|null
+     * @var array<int|string, DataTableRow>|null
      */
     protected ?array $filteredCache = null;
 
@@ -69,7 +73,7 @@ class DataTablePrompt extends Prompt
      * Create a new DataTable instance.
      *
      * @param array<int, string|array<int, string>>|Collection<int, string|array<int, string>> $headers
-     * @param array<int|string, array<int, string>>|Collection<int|string, array<int, string>>|null $rows
+     * @param array<int|string, DataTableRow>|Collection<int|string, DataTableRow>|null $rows
      * @param array<int|string, string|bool|array{
      *     type?: string,
      *     enabled?: bool,
@@ -78,28 +82,15 @@ class DataTablePrompt extends Prompt
      *     format?: string|array<int, string>,
      *     formats?: array<int, string>,
      *     date_formats?: array<int, string>,
-     *     display?: string|Closure(string, array<int, string>): string|array{
+     *     display?: string|Closure(string, array<int|string, string>): string|array{
      *         type?: string,
      *         pattern?: string,
-     *         template?: string,
-     *         symbol?: string,
-     *         currency?: string,
-     *         locale?: string,
-     *         decimals?: int,
-     *         unit?: string,
-     *         decimal_separator?: string,
-     *         thousands_separator?: string
+     *         template?: string
      *     },
-     *     symbol?: string,
-     *     currency?: string,
-     *     locale?: string,
-     *     decimals?: int,
-     *     unit?: string,
-     *     decimal_separator?: string,
-     *     thousands_separator?: string
+     *     template?: string
      * }>|null $sort
      *
-     * @phpstan-param ($rows is null ? list<list<string>>|Collection<int, list<string>> : list<string|list<string>>|Collection<int, string|list<string>>) $headers
+     * @phpstan-param ($rows is null ? list<DataTableRow>|Collection<int, DataTableRow> : list<string|list<string>>|Collection<int, string|list<string>>) $headers
      */
     public function __construct(
         array|Collection $headers = [],
@@ -383,7 +374,7 @@ class DataTablePrompt extends Prompt
     /**
      * Get the filtered rows based on the current search query.
      *
-     * @return array<int|string, array<int, string>>
+     * @return array<int|string, DataTableRow>
      */
     public function filteredRows(): array
     {
@@ -409,7 +400,7 @@ class DataTablePrompt extends Prompt
         return $this->filteredCache = $this->tableState->applySorting(array_filter(
             $this->rows,
             fn (array $row) => str_contains(
-                mb_strtolower(implode(' ', $row)),
+                mb_strtolower(implode(' ', $this->tableState->normalizeRowForRawValues($row))),
                 mb_strtolower($this->typedValue),
             ),
         ));
@@ -450,7 +441,7 @@ class DataTablePrompt extends Prompt
     /**
      * The currently visible rows.
      *
-     * @return array<int|string, array<int, string>>
+     * @return array<int|string, DataTableRow>
      */
     public function visible(): array
     {
@@ -509,7 +500,7 @@ class DataTablePrompt extends Prompt
     /**
      * Get the selected row for display purposes.
      *
-     * @return array<int, string>|null
+     * @return array<int|string, mixed>|null
      */
     public function selectedRow(): ?array
     {

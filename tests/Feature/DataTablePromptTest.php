@@ -613,37 +613,95 @@ it('sorts numeric columns using configured type', function () {
     Prompt::assertStrippedOutputContains('Age ↑');
 });
 
-it('formats numeric columns for display while preserving numeric sorting', function () {
-    Prompt::fake(['s', '2', Key::ENTER]);
+it('renders explicit structured display values without applying column formatters', function () {
+    Prompt::fake([Key::ENTER]);
 
-    $result = datatable(
-        headers: ['Title', 'Revenue', 'Runtime'],
+    datatable(
+        headers: ['Title', 'Runtime'],
         rows: [
-            'alpha' => ['Alpha', '876688482', '161'],
-            'beta' => ['Beta', '1200', '95'],
-            'gamma' => ['Gamma', '250', '45'],
+            ['Alpha', ['raw' => 4200, 'display' => '1 hour 10 minutes']],
+            ['Beta', ['raw' => 4230, 'display' => '1 hour 10 minutes 30 seconds']],
         ],
         scroll: 5,
         label: 'Sort movies',
         sort: [
             'Title' => 'alpha',
-            'Revenue' => [
-                'type' => 'numeric',
-                'display' => [
-                    'type' => 'currency',
-                    'symbol' => '$',
-                ],
-            ],
             'Runtime' => [
                 'type' => 'numeric',
-                'display' => 'duration',
+                'display' => '%s seconds',
             ],
         ],
     );
 
-    expect($result)->toBe('gamma');
-    Prompt::assertStrippedOutputContains('$876,688,482');
-    Prompt::assertStrippedOutputContains('2 hours 41 minutes');
+    Prompt::assertStrippedOutputContains('1 hour 10 minutes');
+    Prompt::assertStrippedOutputContains('1 hour 10 minutes 30 seconds');
+    Prompt::assertStrippedOutputDoesntContain('4200 seconds');
+});
+
+it('sorts numeric columns using structured raw values instead of display text', function () {
+    Prompt::fake(['s', '1', Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Title', 'Runtime'],
+        rows: [
+            'first' => ['First', ['raw' => 2, 'display' => 'Zebra']],
+            'second' => ['Second', ['raw' => 10, 'display' => 'Apple']],
+        ],
+        scroll: 5,
+        label: 'Sort movies',
+        sort: ['Runtime' => 'numeric'],
+    );
+
+    expect($result)->toBe('first');
+});
+
+it('filters structured cells using raw values', function () {
+    Prompt::fake(['/', '6', '0', Key::ENTER, Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Title', 'Runtime'],
+        rows: [
+            'alpha' => ['Alpha', ['raw' => 60, 'display' => 'one minute']],
+            'beta' => ['Beta', ['raw' => 90, 'display' => 'one and a half minutes']],
+        ],
+        scroll: 5,
+        label: 'Sort movies',
+        sort: ['Runtime' => 'numeric'],
+    );
+
+    expect($result)->toBe('alpha');
+});
+
+it('returns list index for structured rows', function () {
+    Prompt::fake([Key::DOWN, Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Name', 'Runtime'],
+        rows: [
+            ['Alice', ['raw' => 120, 'display' => '2 minutes']],
+            ['Bob', ['raw' => 180, 'display' => '3 minutes']],
+        ],
+        scroll: 5,
+        label: 'Pick one',
+    );
+
+    expect($result)->toBe(1);
+});
+
+it('returns associative key for structured rows', function () {
+    Prompt::fake([Key::DOWN, Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Name', 'Runtime'],
+        rows: [
+            'a' => ['Alice', ['raw' => 120, 'display' => '2 minutes']],
+            'b' => ['Bob', ['raw' => 180, 'display' => '3 minutes']],
+        ],
+        scroll: 5,
+        label: 'Pick one',
+    );
+
+    expect($result)->toBe('b');
 });
 
 it('formats columns with printf patterns and keeps numeric sorting based on raw values', function () {
@@ -676,6 +734,57 @@ it('formats columns with printf patterns and keeps numeric sorting based on raw 
     expect($result)->toBe('beta');
     Prompt::assertStrippedOutputContains('Movie: Alpha');
     Prompt::assertStrippedOutputContains('1200 (USD)');
+});
+
+it('formats columns with callable display formatters', function () {
+    Prompt::fake([Key::ENTER]);
+
+    datatable(
+        headers: ['Title', 'Runtime'],
+        rows: [
+            ['Alpha', '161'],
+            ['Beta', '95'],
+        ],
+        scroll: 5,
+        label: 'Sort movies',
+        sort: [
+            'Runtime' => [
+                'type' => 'numeric',
+                'display' => fn (string $value, array $row): string => sprintf('%s min (%s)', $value, $row[0] ?? ''),
+            ],
+        ],
+    );
+
+    Prompt::assertStrippedOutputContains('161 min (Alpha)');
+    Prompt::assertStrippedOutputContains('95 min (Beta)');
+});
+
+it('treats legacy currency and duration formatter names as no-op', function () {
+    Prompt::fake([Key::ENTER]);
+
+    datatable(
+        headers: ['Title', 'Revenue', 'Runtime'],
+        rows: [
+            ['Alpha', '1200', '95'],
+        ],
+        scroll: 5,
+        label: 'Sort movies',
+        sort: [
+            'Revenue' => [
+                'type' => 'numeric',
+                'display' => 'currency',
+            ],
+            'Runtime' => [
+                'type' => 'numeric',
+                'display' => ['type' => 'duration'],
+            ],
+        ],
+    );
+
+    Prompt::assertStrippedOutputContains('1200');
+    Prompt::assertStrippedOutputContains('95');
+    Prompt::assertStrippedOutputDoesntContain('$1,200');
+    Prompt::assertStrippedOutputDoesntContain('hours');
 });
 
 it('toggles sort direction when sorting the same column again', function () {
