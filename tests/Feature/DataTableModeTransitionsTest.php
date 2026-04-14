@@ -1,9 +1,10 @@
 <?php
 
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
+use Laravel\Prompts\DataTable\Modes\ColumnMode;
 use Laravel\Prompts\DataTable\Modes\SearchMode;
-use Laravel\Prompts\DataTable\Modes\SortColumnMode;
-use Laravel\Prompts\DataTable\Modes\SortMode;
+use Laravel\Prompts\DataTable\Modes\SelectMode;
+use Laravel\Prompts\DataTable\Modes\SortedMode;
 use Laravel\Prompts\DataTablePrompt;
 use Laravel\Prompts\Key;
 use Laravel\Prompts\Prompt;
@@ -45,7 +46,7 @@ it('transitions from search to browse through the active mode handler while keep
         ->and($prompt->searchValue())->toBe('b');
 });
 
-it('transitions from sort to sort column after a unique typed match through the active mode handler', function () {
+it('transitions from select to column after a unique typed match through the active mode handler', function () {
     Prompt::fake();
 
     $prompt = new DataTablePrompt(
@@ -59,16 +60,15 @@ it('transitions from sort to sort column after a unique typed match through the 
 
     $prompt->emit('key', 's');
 
-    expect($prompt->tableState->mode()->name())->toBe(SortMode::NAME);
+    expect($prompt->tableState->mode()->name())->toBe(SelectMode::NAME);
 
     $prompt->tableState->mode()->handleKey($prompt, 'n');
-    $prompt->tableState->mode()->handleKey($prompt, Key::ENTER);
 
-    expect($prompt->tableState->mode()->name())->toBe(SortColumnMode::NAME)
-        ->and($prompt->displayHeaders()[0])->toContain('˄');
+    expect($prompt->tableState->mode()->name())->toBe(ColumnMode::NAME)
+        ->and($prompt->displayHeaders()[0])->toContain(' -');
 });
 
-it('transitions from sort column back to sort on escape while preserving order', function () {
+it('transitions from column to sorted on s and toggles direction with another s', function () {
     Prompt::fake();
 
     $prompt = new DataTablePrompt(
@@ -81,14 +81,18 @@ it('transitions from sort column back to sort on escape while preserving order',
     );
 
     $prompt->emit('key', 's');
-    $prompt->tableState->mode()->handleKey($prompt, Key::ENTER);
-    $prompt->tableState->mode()->handleKey($prompt, Key::ESCAPE);
+    $prompt->tableState->mode()->handleKey($prompt, 'n');
+    $prompt->tableState->mode()->handleKey($prompt, 's');
 
-    expect($prompt->tableState->mode()->name())->toBe(SortMode::NAME)
+    expect($prompt->tableState->mode()->name())->toBe(SortedMode::NAME)
         ->and($prompt->displayHeaders()[0])->toContain('˄');
+
+    $prompt->tableState->mode()->handleKey($prompt, 's');
+
+    expect($prompt->displayHeaders()[0])->toContain('˅');
 });
 
-it('exits sort mode with a second escape while preserving order', function () {
+it('walks the escape chain sorted to column to select to normal while preserving order', function () {
     Prompt::fake();
 
     $prompt = new DataTablePrompt(
@@ -101,15 +105,24 @@ it('exits sort mode with a second escape while preserving order', function () {
     );
 
     $prompt->emit('key', 's');
-    $prompt->tableState->mode()->handleKey($prompt, Key::ENTER);
+    $prompt->tableState->mode()->handleKey($prompt, 'n');
+    $prompt->tableState->mode()->handleKey($prompt, 's');
+    $prompt->tableState->mode()->handleKey($prompt, 's');
     $prompt->tableState->mode()->handleKey($prompt, Key::ESCAPE);
+
+    expect($prompt->tableState->mode()->name())->toBe(ColumnMode::NAME);
+
+    $prompt->tableState->mode()->handleKey($prompt, Key::ESCAPE);
+
+    expect($prompt->tableState->mode()->name())->toBe(SelectMode::NAME);
+
     $prompt->tableState->mode()->handleKey($prompt, Key::ESCAPE);
 
     expect($prompt->tableState->mode()->name())->toBe(BrowseMode::NAME)
-        ->and($prompt->displayHeaders()[0])->toContain('˄');
+        ->and($prompt->displayHeaders()[0])->toContain('˅');
 });
 
-it('keeps the search query when toggling help with ctrl+h in search mode', function () {
+it('keeps the search query while staying in search mode', function () {
     Prompt::fake();
 
     $prompt = new DataTablePrompt(
@@ -123,9 +136,7 @@ it('keeps the search query when toggling help with ctrl+h in search mode', funct
 
     $prompt->emit('key', '/');
     $prompt->emit('key', 'b');
-    $prompt->tableState->mode()->handleKey($prompt, Key::CTRL_H);
 
     expect($prompt->tableState->mode()->name())->toBe(SearchMode::NAME)
-        ->and($prompt->searchValue())->toBe('b')
-        ->and($prompt->isHelpVisible())->toBeTrue();
+        ->and($prompt->searchValue())->toBe('b');
 });

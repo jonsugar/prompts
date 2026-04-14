@@ -22,12 +22,7 @@ interface DataTableMode
     public function handleKey(DataTablePrompt $prompt, string $key): void;
 
     /**
-     * Help text shown when help is toggled.
+     * Help text shown for this mode.
      */
     public function helpText(): string;
-
-    /**
-     * Key label used to show help for this mode.
-     */
-    public function helpToggleKey(): string;
 }

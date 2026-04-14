@@ -5,10 +5,11 @@ namespace Laravel\Prompts;
 use Closure;
 use Illuminate\Support\Collection;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
+use Laravel\Prompts\DataTable\Modes\ColumnMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
 use Laravel\Prompts\DataTable\Modes\SearchMode;
-use Laravel\Prompts\DataTable\Modes\SortColumnMode;
-use Laravel\Prompts\DataTable\Modes\SortMode;
+use Laravel\Prompts\DataTable\Modes\SelectMode;
+use Laravel\Prompts\DataTable\Modes\SortedMode;
 use Laravel\Prompts\DataTable\TableState;
 
 /**
@@ -118,8 +119,7 @@ class DataTablePrompt extends Prompt
 
         $this->trackTypedValue(
             submit: false,
-            ignore: fn (string $key) => ! $this->tableState->mode()->acceptsTypedInput()
-                || $key === Key::CTRL_H,
+            ignore: fn (string $key) => ! $this->tableState->mode()->acceptsTypedInput(),
         );
 
         $this->on('key', fn (string $key) => $this->tableState->mode()->handleKey($this, $key));
@@ -142,19 +142,47 @@ class DataTablePrompt extends Prompt
     }
 
     /**
+     * Handle key presses in select mode.
+     */
+    public function handleSelectKey(string $key): void
+    {
+        (new SelectMode)->handleKey($this, $key);
+    }
+
+    /**
+     * Handle key presses in column mode.
+     */
+    public function handleColumnKey(string $key): void
+    {
+        (new ColumnMode)->handleKey($this, $key);
+    }
+
+    /**
+     * Handle key presses in sorted mode.
+     */
+    public function handleSortedKey(string $key): void
+    {
+        (new SortedMode)->handleKey($this, $key);
+    }
+
+    /**
      * Handle key presses in sort mode.
+     *
+     * @deprecated Use handleSelectKey().
      */
     public function handleSortKey(string $key): void
     {
-        (new SortMode)->handleKey($this, $key);
+        $this->handleSelectKey($key);
     }
 
     /**
      * Handle key presses in sort column mode.
+     *
+     * @deprecated Use handleColumnKey().
      */
     public function handleSortColumnKey(string $key): void
     {
-        (new SortColumnMode)->handleKey($this, $key);
+        $this->handleColumnKey($key);
     }
 
     /**
@@ -216,14 +244,6 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Toggle the help hint visibility.
-     */
-    public function toggleHelp(): void
-    {
-        $this->tableState->toggleHelp();
-    }
-
-    /**
      * Transition to another datatable interaction mode.
      */
     public function transitionTo(DataTableMode $mode): void
@@ -272,24 +292,64 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Enter sort mode.
+     * Enter select mode.
      */
-    public function enterSortMode(): void
+    public function enterSelectMode(): void
     {
         if (! $this->tableState->hasSortableColumns()) {
             return;
         }
 
         $this->tableState->clearSortQuery();
-        $this->transitionTo(new SortMode);
+        $this->transitionTo(new SelectMode);
+    }
+
+    /**
+     * Enter column mode.
+     */
+    public function enterColumnMode(): void
+    {
+        $this->transitionTo(new ColumnMode);
+    }
+
+    /**
+     * Enter sorted mode.
+     */
+    public function enterSortedMode(): void
+    {
+        if ($this->tableState->selectedColumnIndex === null) {
+            return;
+        }
+
+        $sortActivated = $this->tableState->activateSortForSelectedColumn();
+
+        if ($sortActivated) {
+            $this->invalidateFilteredRows();
+            $this->highlighted = 0;
+            $this->firstVisible = 0;
+        }
+
+        $this->transitionTo(new SortedMode);
+    }
+
+    /**
+     * Enter sort mode.
+     *
+     * @deprecated Use enterSelectMode().
+     */
+    public function enterSortMode(): void
+    {
+        $this->enterSelectMode();
     }
 
     /**
      * Enter sort column mode.
+     *
+     * @deprecated Use enterColumnMode().
      */
     public function enterSortColumnMode(): void
     {
-        $this->transitionTo(new SortColumnMode);
+        $this->enterColumnMode();
     }
 
     /**
@@ -347,11 +407,29 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Leave sort column mode and return to sort mode.
+     * Leave column mode and return to select mode.
+     */
+    public function exitColumnMode(): void
+    {
+        $this->enterSelectMode();
+    }
+
+    /**
+     * Leave sorted mode and return to column mode.
+     */
+    public function exitSortedMode(): void
+    {
+        $this->enterColumnMode();
+    }
+
+    /**
+     * Leave sort column mode and return to select mode.
+     *
+     * @deprecated Use exitColumnMode().
      */
     public function exitSortColumnMode(): void
     {
-        $this->enterSortMode();
+        $this->exitColumnMode();
     }
 
     /**
@@ -381,18 +459,30 @@ class DataTablePrompt extends Prompt
             return false;
         }
 
-        $sortChanged = $this->tableState->selectSortColumn($matches[0]);
+        $selectionChanged = $this->tableState->selectColumn($matches[0]);
         $this->clearSortQuery();
 
-        if ($sortChanged) {
+        if ($selectionChanged) {
             $this->invalidateFilteredRows();
             $this->highlighted = 0;
             $this->firstVisible = 0;
         }
 
-        $this->enterSortColumnMode();
+        $this->enterColumnMode();
 
         return true;
+    }
+
+    /**
+     * Apply sorting from query only when a non-empty query is present.
+     */
+    public function applySortFromQueryIfUniqueWhenQueryPresent(): bool
+    {
+        if ($this->tableState->sortQuery === '') {
+            return false;
+        }
+
+        return $this->applySortFromQueryIfUnique();
     }
 
     /**
@@ -404,27 +494,55 @@ class DataTablePrompt extends Prompt
     }
 
     /**
+     * Determine whether select mode is active.
+     */
+    public function isSelectMode(): bool
+    {
+        return $this->tableState->mode()->name() === SelectMode::NAME;
+    }
+
+    /**
+     * Determine whether column mode is active.
+     */
+    public function isColumnMode(): bool
+    {
+        return $this->tableState->mode()->name() === ColumnMode::NAME;
+    }
+
+    /**
+     * Determine whether sorted mode is active.
+     */
+    public function isSortedMode(): bool
+    {
+        return $this->tableState->mode()->name() === SortedMode::NAME;
+    }
+
+    /**
+     * Determine whether any select/column/sorted mode is active.
+     */
+    public function isColumnSelectionMode(): bool
+    {
+        return $this->isSelectMode() || $this->isColumnMode() || $this->isSortedMode();
+    }
+
+    /**
      * Determine whether sort mode is active.
+     *
+     * @deprecated Use isSelectMode().
      */
     public function isSortMode(): bool
     {
-        return $this->tableState->mode()->name() === SortMode::NAME;
+        return $this->isSelectMode();
     }
 
     /**
      * Determine whether sort column mode is active.
+     *
+     * @deprecated Use isColumnMode().
      */
     public function isSortColumnMode(): bool
     {
-        return $this->tableState->mode()->name() === SortColumnMode::NAME;
-    }
-
-    /**
-     * Determine whether help text is visible.
-     */
-    public function isHelpVisible(): bool
-    {
-        return $this->tableState->helpVisible;
+        return $this->isColumnMode();
     }
 
     /**
@@ -436,13 +554,18 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Help line shown when contextual help is hidden.
+     * The user-facing label for the current mode.
      */
-    public function helpPromptText(): string
+    public function modeLabel(): string
     {
-        $message = 'Press '.$this->tableState->mode()->helpToggleKey().' to show help';
-
-        return $this->hint !== '' ? $this->hint.' | '.$message : $message;
+        return match ($this->tableState->mode()->name()) {
+            BrowseMode::NAME => 'NORMAL',
+            SearchMode::NAME => 'SEARCH',
+            SelectMode::NAME => 'SELECT',
+            ColumnMode::NAME => 'COLUMN',
+            SortedMode::NAME => 'SORTED',
+            default => strtoupper($this->tableState->mode()->name()),
+        };
     }
 
     /**

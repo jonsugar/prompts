@@ -6,7 +6,6 @@ use DateTimeImmutable;
 use Laravel\Prompts\DataTable\Formatting\DisplayFormatterResolver;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
-use Laravel\Prompts\DataTable\Modes\SortMode;
 
 class TableState
 {
@@ -21,12 +20,12 @@ class TableState
     public ?SortSelection $sortSelection = null;
 
     /**
-     * Indicates whether help text should be shown.
+     * The currently selected sortable column.
      */
-    public bool $helpVisible = false;
+    public ?int $selectedColumnIndex = null;
 
     /**
-     * The current type-ahead query while in sort mode.
+     * The current type-ahead query while in select mode.
      */
     public string $sortQuery = '';
 
@@ -63,14 +62,6 @@ class TableState
     public function setMode(DataTableMode $mode): void
     {
         $this->mode = $mode;
-    }
-
-    /**
-     * Toggle the help line.
-     */
-    public function toggleHelp(): void
-    {
-        $this->helpVisible = ! $this->helpVisible;
     }
 
     /**
@@ -118,17 +109,19 @@ class TableState
 
         if ($this->sortSelection !== null && $this->sortSelection->columnIndex === $columnIndex) {
             $this->sortSelection->direction = SortDirection::toggle($this->sortSelection->direction);
+            $this->selectedColumnIndex = $columnIndex;
 
             return;
         }
 
+        $this->selectedColumnIndex = $columnIndex;
         $this->sortSelection = new SortSelection($columnIndex, SortDirection::ASC);
     }
 
     /**
-     * Select a sortable column without changing direction when already selected.
+     * Select a sortable column without applying sorting.
      */
-    public function selectSortColumn(int $columnIndex): bool
+    public function selectColumn(int $columnIndex): bool
     {
         $column = $this->columnByIndex($columnIndex);
 
@@ -136,13 +129,52 @@ class TableState
             return false;
         }
 
-        if ($this->sortSelection !== null && $this->sortSelection->columnIndex === $columnIndex) {
+        $selectionChanged = $this->selectedColumnIndex !== $columnIndex;
+        $sortWasActive = $this->sortSelection !== null;
+
+        $this->selectedColumnIndex = $columnIndex;
+        $this->sortSelection = null;
+
+        return $selectionChanged || $sortWasActive;
+    }
+
+    /**
+     * Activate sorting for the selected column using ascending order.
+     */
+    public function activateSortForSelectedColumn(): bool
+    {
+        if ($this->selectedColumnIndex === null) {
             return false;
         }
 
-        $this->sortSelection = new SortSelection($columnIndex, SortDirection::ASC);
+        $column = $this->columnByIndex($this->selectedColumnIndex);
+
+        if ($column === null || ! $column->sortable) {
+            return false;
+        }
+
+        if ($this->sortSelection !== null
+            && $this->sortSelection->columnIndex === $this->selectedColumnIndex
+            && $this->sortSelection->direction === SortDirection::ASC) {
+            return false;
+        }
+
+        $this->sortSelection = new SortSelection($this->selectedColumnIndex, SortDirection::ASC);
 
         return true;
+    }
+
+    /**
+     * Select and sort a column.
+     *
+     * @deprecated Use selectColumn() + activateSortForSelectedColumn().
+     */
+    public function selectSortColumn(int $columnIndex): bool
+    {
+        $selected = $this->selectColumn($columnIndex);
+        $sorted = $this->activateSortForSelectedColumn();
+
+        return $selected || $sorted;
     }
 
     /**
@@ -154,6 +186,7 @@ class TableState
             return false;
         }
 
+        $this->selectedColumnIndex = $this->sortSelection->columnIndex;
         $this->sortSelection->direction = SortDirection::toggle($this->sortSelection->direction);
 
         return true;

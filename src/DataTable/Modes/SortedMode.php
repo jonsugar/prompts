@@ -2,12 +2,12 @@
 
 namespace Laravel\Prompts\DataTable\Modes;
 
-use Laravel\Prompts\Key;
 use Laravel\Prompts\DataTablePrompt;
+use Laravel\Prompts\Key;
 
-class SearchMode implements DataTableMode
+class SortedMode implements DataTableMode
 {
-    public const NAME = 'search';
+    public const NAME = 'sorted';
 
     public function name(): string
     {
@@ -16,20 +16,20 @@ class SearchMode implements DataTableMode
 
     public function acceptsTypedInput(): bool
     {
-        return true;
+        return false;
     }
 
     public function handleKey(DataTablePrompt $prompt, string $key): void
     {
         match ($key) {
-            Key::ENTER => $prompt->exitSearchMode(),
-            Key::ESCAPE => $prompt->cancelSearchMode(),
-            default => $prompt->refreshSearchResults(),
+            's' => $prompt->toggleSortDirection(),
+            Key::ESCAPE => $prompt->exitSortedMode(),
+            default => null,
         };
     }
 
     public function helpText(): string
     {
-        return 'Type to filter | Enter: keep filter | Esc: clear filter';
+        return 's: toggle sort direction | Esc: back to column';
     }
 }

@@ -142,13 +142,16 @@ class DataTableRenderer extends Renderer implements Scrolling
                 $sortPrefixLengths = $this->sortModePrefixLengths($prompt);
                 $sortQuery = $prompt->tableState->sortQuery;
                 $sortMatches = array_flip($prompt->tableState->matchingSortableColumnIndexes());
+                $selectedColumnIndex = $prompt->tableState->selectedColumnIndex;
+                $isSelectMode = $prompt->isSelectMode();
+                $isColumnOrSortedMode = $prompt->isColumnMode() || $prompt->isSortedMode();
 
                 foreach ($widths as $i => $w) {
                     $text = $this->truncate((string) ($headers[$i] ?? ''), $w);
                     $column = $prompt->tableState->columns[$i] ?? null;
                     [$title, $icon] = $this->splitHeaderTitleAndIcon($text);
 
-                    if ($prompt->isSortMode() || $prompt->isSortColumnMode()) {
+                    if ($isSelectMode) {
                         if ($column?->sortable) {
                             if ($sortQuery === '') {
                                 $text = $this->composeHeader(
@@ -166,6 +169,8 @@ class DataTableRenderer extends Renderer implements Scrolling
                         } else {
                             $text = $this->dim($text);
                         }
+                    } elseif ($isColumnOrSortedMode && $column?->index === $selectedColumnIndex) {
+                        $text = $this->composeHeader($this->bold($this->black($title)), $icon);
                     } else {
                         $text = $this->composeHeader($this->dim($title), $icon);
                     }
@@ -201,12 +206,11 @@ class DataTableRenderer extends Renderer implements Scrolling
             }
         }
 
-        return $this
-            ->when(
-                $prompt->state === 'error',
-                fn() => $this->warning($this->truncate($prompt->error, $prompt->terminal()->cols() - 5)),
-                fn() => $this->hint($this->truncate($prompt->helpText(), $prompt->terminal()->cols() - 5)),
-            );
+        if ($prompt->state === 'error') {
+            return $this->warning($this->truncate($prompt->error, $prompt->terminal()->cols() - 5));
+        }
+
+        return $this->renderModeHelpLine($prompt);
     }
 
     /**
@@ -243,6 +247,19 @@ class DataTableRenderer extends Renderer implements Scrolling
         }
 
         return $this->dim('/ Search');
+    }
+
+    /**
+     * Render the mode badge and help text line.
+     */
+    protected function renderModeHelpLine(DataTablePrompt $prompt): self
+    {
+        $modeBadge = $this->bgBlack($this->white(' ' . $prompt->modeLabel() . ' '));
+        $prefix = '  ' . $modeBadge . ' ';
+        $availableWidth = max(1, $prompt->terminal()->cols() - mb_strwidth($this->stripEscapeSequences($prefix)));
+        $helpText = $this->truncate($prompt->helpText(), $availableWidth);
+
+        return $this->line($prefix . $this->gray($helpText));
     }
 
     /**
