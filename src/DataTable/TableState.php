@@ -26,6 +26,11 @@ class TableState
     public bool $helpVisible = false;
 
     /**
+     * The current type-ahead query while in sort mode.
+     */
+    public string $sortQuery = '';
+
+    /**
      * @var DataTableMode
      */
     protected DataTableMode $mode;
@@ -121,6 +126,40 @@ class TableState
     }
 
     /**
+     * Select a sortable column without changing direction when already selected.
+     */
+    public function selectSortColumn(int $columnIndex): bool
+    {
+        $column = $this->columnByIndex($columnIndex);
+
+        if ($column === null || ! $column->sortable) {
+            return false;
+        }
+
+        if ($this->sortSelection !== null && $this->sortSelection->columnIndex === $columnIndex) {
+            return false;
+        }
+
+        $this->sortSelection = new SortSelection($columnIndex, SortDirection::ASC);
+
+        return true;
+    }
+
+    /**
+     * Toggle direction for the selected sort column.
+     */
+    public function toggleSortDirection(): bool
+    {
+        if ($this->sortSelection === null) {
+            return false;
+        }
+
+        $this->sortSelection->direction = SortDirection::toggle($this->sortSelection->direction);
+
+        return true;
+    }
+
+    /**
      * A cache key that reflects sort state.
      */
     public function sortCacheKey(): string
@@ -163,6 +202,61 @@ class TableState
             $column->title,
             $this->sortSelection->direction
         );
+    }
+
+    /**
+     * Append typed characters to the active sort query.
+     */
+    public function appendSortQuery(string $value): void
+    {
+        if ($value !== '') {
+            $this->sortQuery .= $value;
+        }
+    }
+
+    /**
+     * Remove one character from the end of the sort query.
+     */
+    public function trimSortQuery(): void
+    {
+        if ($this->sortQuery === '') {
+            return;
+        }
+
+        $this->sortQuery = mb_substr($this->sortQuery, 0, mb_strlen($this->sortQuery) - 1);
+    }
+
+    /**
+     * Clear the sort query.
+     */
+    public function clearSortQuery(): void
+    {
+        $this->sortQuery = '';
+    }
+
+    /**
+     * Return sortable column indexes matching the current sort query.
+     *
+     * @return array<int, int>
+     */
+    public function matchingSortableColumnIndexes(): array
+    {
+        $query = mb_strtolower($this->sortQuery);
+        $matches = [];
+
+        foreach ($this->columns as $column) {
+            if (! $column->sortable) {
+                continue;
+            }
+
+            $title = mb_strtolower($column->title);
+
+            if ($query === '' || str_starts_with($title, $query)) {
+                $matches[] = $column->index;
+            }
+        }
+
+        return $matches;
     }
 
     /**
@@ -702,11 +796,7 @@ class TableState
     {
         $indicator = $this->sortIndicator($column->index);
 
-        if ($this->mode->name() === SortMode::NAME && $column->sortable && $column->shortcut !== null) {
-            return '[' . $column->shortcut . '] ' . $column->title . ($indicator === '' ? '' : ' ' . $indicator);
-        }
-
-        return $column->title . ($indicator === '' ? '' : ' ' . $indicator);
+        return $column->title . ' ' . $indicator;
     }
 
     /**
@@ -715,10 +805,10 @@ class TableState
     protected function sortIndicator(int $columnIndex): string
     {
         if ($this->sortSelection === null || $this->sortSelection->columnIndex !== $columnIndex) {
-            return '';
+            return '-';
         }
 
-        return $this->sortSelection->direction === SortDirection::ASC ? '↑' : '↓';
+        return $this->sortSelection->direction === SortDirection::ASC ? '˄' : '˅';
     }
 
     /**

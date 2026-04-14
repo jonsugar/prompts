@@ -139,10 +139,39 @@ class DataTableRenderer extends Renderer implements Scrolling
             // Header cells: │ Header │ Header   │
             if (! empty($prompt->headers)) {
                 $headerCells = [];
+                $sortPrefixLengths = $this->sortModePrefixLengths($prompt);
+                $sortQuery = $prompt->tableState->sortQuery;
+                $sortMatches = array_flip($prompt->tableState->matchingSortableColumnIndexes());
 
                 foreach ($widths as $i => $w) {
-                    $text = $headers[$i] ?? '';
-                    $headerCells[] = $this->dim(' ' . $this->pad($this->truncate((string)$text, $w), $w) . ' ');
+                    $text = $this->truncate((string) ($headers[$i] ?? ''), $w);
+                    $column = $prompt->tableState->columns[$i] ?? null;
+                    [$title, $icon] = $this->splitHeaderTitleAndIcon($text);
+
+                    if ($prompt->isSortMode() || $prompt->isSortColumnMode()) {
+                        if ($column?->sortable) {
+                            if ($sortQuery === '') {
+                                $text = $this->composeHeader(
+                                    $this->highlightSortPrefix($title, $sortPrefixLengths[$i] ?? 0),
+                                    $icon
+                                );
+                            } else {
+                                $text = isset($sortMatches[$column->index])
+                                    ? $this->composeHeader(
+                                        $this->highlightSortPrefix($title, $sortPrefixLengths[$i] ?? 0),
+                                        $icon
+                                    )
+                                    : $this->dim($text);
+                            }
+                        } else {
+                            $text = $this->dim($text);
+                        }
+                    } else {
+                        $text = $this->composeHeader($this->dim($title), $icon);
+                    }
+
+                    $cell = ' ' . $this->pad($text, $w) . ' ';
+                    $headerCells[] = $cell;
                 }
 
                 $headerLine = implode($this->gray('│'), $headerCells) . '  ';
@@ -352,6 +381,124 @@ class DataTableRenderer extends Renderer implements Scrolling
         }
 
         return $dataLines;
+    }
+
+    /**
+     * Compute the shortest unique prefix length for each sortable header title.
+     *
+     * @return array<int, int>
+     */
+    protected function sortModePrefixLengths(DataTablePrompt $prompt): array
+    {
+        $titles = [];
+
+        foreach ($prompt->tableState->columns as $column) {
+            if (! $column->sortable) {
+                continue;
+            }
+
+            $titles[$column->index] = mb_strtolower($column->title);
+        }
+
+        $lengths = [];
+
+        foreach ($titles as $index => $title) {
+            $titleLength = mb_strlen($title);
+
+            if ($titleLength === 0) {
+                $lengths[$index] = 0;
+
+                continue;
+            }
+
+            $lengths[$index] = $titleLength;
+
+            for ($candidate = 1; $candidate <= $titleLength; $candidate++) {
+                $prefix = mb_substr($title, 0, $candidate);
+                $isUnique = true;
+
+                foreach ($titles as $otherIndex => $otherTitle) {
+                    if ($otherIndex === $index) {
+                        continue;
+                    }
+
+                    if (str_starts_with($otherTitle, $prefix)) {
+                        $isUnique = false;
+
+                        break;
+                    }
+                }
+
+                if ($isUnique) {
+                    $lengths[$index] = $candidate;
+
+                    break;
+                }
+            }
+        }
+
+        return $lengths;
+    }
+
+    /**
+     * Emphasize the sortable prefix in sort mode headers.
+     */
+    protected function highlightSortPrefix(string $header, int $prefixLength): string
+    {
+        if ($prefixLength <= 0 || $header === '') {
+            return $this->dim($header);
+        }
+
+        $length = min($prefixLength, mb_strlen($header));
+
+        if ($length === 0) {
+            return $this->dim($header);
+        }
+
+        $prefix = mb_substr($header, 0, $length);
+        $suffix = mb_substr($header, $length);
+
+        return $this->bold($this->black($prefix)).$this->dim($suffix);
+    }
+
+    /**
+     * Split a header text into title and trailing sort icon.
+     *
+     * @return array{0: string, 1: string}
+     */
+    protected function splitHeaderTitleAndIcon(string $header): array
+    {
+        foreach ([' ˄', ' ˅', ' -'] as $suffix) {
+            if (str_ends_with($header, $suffix)) {
+                return [mb_substr($header, 0, mb_strlen($header) - mb_strlen($suffix)), trim($suffix)];
+            }
+        }
+
+        return [$header, ''];
+    }
+
+    /**
+     * Compose header text with a consistently styled sort icon.
+     */
+    protected function composeHeader(string $title, string $icon): string
+    {
+        if ($icon === '') {
+            return $title;
+        }
+
+        return $title . ' ' . $this->styleSortIcon($icon);
+    }
+
+    /**
+     * Style sort icons based on current sort state.
+     */
+    protected function styleSortIcon(string $icon): string
+    {
+        if ($icon === '˄' || $icon === '˅') {
+            return $this->bold($this->black($icon));
+        }
+
+        return $this->dim($icon);
     }
 
     /**

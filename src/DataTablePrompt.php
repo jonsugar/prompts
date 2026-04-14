@@ -7,6 +7,7 @@ use Illuminate\Support\Collection;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
 use Laravel\Prompts\DataTable\Modes\SearchMode;
+use Laravel\Prompts\DataTable\Modes\SortColumnMode;
 use Laravel\Prompts\DataTable\Modes\SortMode;
 use Laravel\Prompts\DataTable\TableState;
 
@@ -149,6 +150,14 @@ class DataTablePrompt extends Prompt
     }
 
     /**
+     * Handle key presses in sort column mode.
+     */
+    public function handleSortColumnKey(string $key): void
+    {
+        (new SortColumnMode)->handleKey($this, $key);
+    }
+
+    /**
      * Move the selection to the previous row.
      */
     public function highlightPreviousRow(): void
@@ -271,7 +280,16 @@ class DataTablePrompt extends Prompt
             return;
         }
 
+        $this->tableState->clearSortQuery();
         $this->transitionTo(new SortMode);
+    }
+
+    /**
+     * Enter sort column mode.
+     */
+    public function enterSortColumnMode(): void
+    {
+        $this->transitionTo(new SortColumnMode);
     }
 
     /**
@@ -301,6 +319,83 @@ class DataTablePrompt extends Prompt
     }
 
     /**
+     * Append printable characters to the sort mode query.
+     */
+    public function appendSortQuery(string $key): void
+    {
+        foreach (mb_str_split($key) as $character) {
+            if (mb_ord($character) >= 32) {
+                $this->tableState->appendSortQuery($character);
+            }
+        }
+    }
+
+    /**
+     * Remove one character from the sort mode query.
+     */
+    public function trimSortQuery(): void
+    {
+        $this->tableState->trimSortQuery();
+    }
+
+    /**
+     * Reset the sort mode query.
+     */
+    public function clearSortQuery(): void
+    {
+        $this->tableState->clearSortQuery();
+    }
+
+    /**
+     * Leave sort column mode and return to sort mode.
+     */
+    public function exitSortColumnMode(): void
+    {
+        $this->enterSortMode();
+    }
+
+    /**
+     * Toggle the active sort direction.
+     */
+    public function toggleSortDirection(): void
+    {
+        $toggled = $this->tableState->toggleSortDirection();
+
+        if (! $toggled) {
+            return;
+        }
+
+        $this->invalidateFilteredRows();
+        $this->highlighted = 0;
+        $this->firstVisible = 0;
+    }
+
+    /**
+     * Apply sorting when the type-ahead query matches exactly one sortable column.
+     */
+    public function applySortFromQueryIfUnique(): bool
+    {
+        $matches = $this->tableState->matchingSortableColumnIndexes();
+
+        if (count($matches) !== 1) {
+            return false;
+        }
+
+        $sortChanged = $this->tableState->selectSortColumn($matches[0]);
+        $this->clearSortQuery();
+
+        if ($sortChanged) {
+            $this->invalidateFilteredRows();
+            $this->highlighted = 0;
+            $this->firstVisible = 0;
+        }
+
+        $this->enterSortColumnMode();
+
+        return true;
+    }
+
+    /**
      * Determine whether search mode is active.
      */
     public function isSearchMode(): bool
@@ -314,6 +409,14 @@ class DataTablePrompt extends Prompt
     public function isSortMode(): bool
     {
         return $this->tableState->mode()->name() === SortMode::NAME;
+    }
+
+    /**
+     * Determine whether sort column mode is active.
+     */
+    public function isSortColumnMode(): bool
+    {
+        return $this->tableState->mode()->name() === SortColumnMode::NAME;
     }
 
     /**

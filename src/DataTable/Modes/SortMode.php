@@ -22,20 +22,34 @@ class SortMode implements DataTableMode
     public function handleKey(DataTablePrompt $prompt, string $key): void
     {
         match ($key) {
-            Key::ENTER, Key::ESCAPE, 's' => $prompt->enterBrowseMode(),
-            '/' => $prompt->enterSearchMode(),
+            Key::ENTER => $prompt->applySortFromQueryIfUnique(),
+            Key::ESCAPE => $this->exitSortMode($prompt),
+            '/' => $this->switchToSearchMode($prompt),
+            Key::BACKSPACE => $prompt->trimSortQuery(),
             Key::CTRL_H => $prompt->toggleHelp(),
-            default => $prompt->applySortShortcut($key) ? $prompt->enterBrowseMode() : null,
+            default => $prompt->appendSortQuery($key),
         };
     }
 
     public function helpText(): string
     {
-        return 'Press a header shortcut to sort | Same column toggles direction | Enter/Esc: exit sort mode';
+        return 'Type to narrow sortable columns | Enter: choose column when one match remains | Esc: exit sort mode | Ctrl+H: help';
     }
 
     public function helpToggleKey(): string
     {
         return 'Ctrl+H';
+    }
+
+    protected function exitSortMode(DataTablePrompt $prompt): void
+    {
+        $prompt->clearSortQuery();
+        $prompt->enterBrowseMode();
+    }
+
+    protected function switchToSearchMode(DataTablePrompt $prompt): void
+    {
+        $prompt->clearSortQuery();
+        $prompt->enterSearchMode();
     }
 }
