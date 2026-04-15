@@ -33,13 +33,13 @@ class BrowseMode implements DataTableMode
             Key::oneOf([Key::END, Key::CTRL_E], $key) => $prompt->highlightLastRow(),
             Key::ENTER => $prompt->submitIfRowAvailable(),
             '/' => $prompt->enterSearchMode(),
-            's' => $prompt->enterSelectMode(),
+            'c' => $prompt->enterColumnSelectionMode(),
             default => null,
         };
     }
 
     public function helpText(): string
     {
-        return '[Enter] ' . $this->bold($this->black('select')) . '  [/] search  [s] select  [Ctrl+C] cancel';
+        return '[Enter] ' . $this->bold($this->black('select')) . '  [/] search  [c] column  [Ctrl+C] cancel';
     }
 }
