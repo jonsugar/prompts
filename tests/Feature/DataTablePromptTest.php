@@ -576,8 +576,8 @@ it('maintains fixed visual height', function () {
     }
 });
 
-it('renders sort headers without shortcut prefixes when entering sort mode', function () {
-    Prompt::fake(['s', Key::ESCAPE, Key::ENTER]);
+it('renders sortable headers without shortcut prefixes in column mode', function () {
+    Prompt::fake(['c', Key::ESCAPE, Key::ENTER]);
 
     datatable(
         headers: ['Name', 'Age'],
@@ -597,30 +597,8 @@ it('renders sort headers without shortcut prefixes when entering sort mode', fun
     Prompt::assertStrippedOutputDoesntContain('[2]');
 });
 
-it('keeps bold black unique prefixes for matching sort headers and dims non-matching headers', function () {
-    Prompt::fake(['s', 'n', Key::ESCAPE, Key::ENTER]);
-
-    datatable(
-        headers: ['Name', 'Nickname', 'Age'],
-        rows: [
-            ['Alice', 'Al', '20'],
-            ['Bob', 'Bobby', '30'],
-        ],
-        scroll: 5,
-        label: 'Sort users',
-        sort: ['Name' => 'alpha', 'Nickname' => 'alpha', 'Age' => 'numeric'],
-    );
-
-    Prompt::assertOutputContains("\e[1m\e[30mNa\e[39m\e[22m");
-    Prompt::assertOutputContains("\e[2mme\e[22m");
-    Prompt::assertOutputContains("\e[1m\e[30mNi\e[39m\e[22m");
-    Prompt::assertOutputContains("\e[2mckname\e[22m");
-    Prompt::assertOutputContains("\e[2mAge\e[22m");
-    Prompt::assertOutputDoesntContain("\e[32mNi\e[39m");
-});
-
-it('keeps only the selected column title bold black in column mode', function () {
-    Prompt::fake(['s', 'n', Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+it('emphasizes the selected sortable column header in column mode', function () {
+    Prompt::fake(['c', Key::ESCAPE, Key::ENTER]);
 
     datatable(
         headers: ['Name', 'Age'],
@@ -637,37 +615,19 @@ it('keeps only the selected column title bold black in column mode', function ()
     Prompt::assertOutputDoesntContain("\e[1m\e[30mAge\e[39m\e[22m");
 });
 
-it('keeps sort mode active until only one matching column remains', function () {
-    Prompt::fake(['s', 'n', Key::ENTER, 'a', 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+it('sorts numeric columns using configured type and skips non-sortable columns when moving right', function () {
+    Prompt::fake(['c', Key::RIGHT, 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
-        headers: ['Name', 'Nickname'],
+        headers: ['Name', 'Status', 'Age'],
         rows: [
-            'zed' => ['Zed', 'Bravo'],
-            'amy' => ['Amy', 'Alpha'],
+            'alice' => ['Alice', 'active', '20'],
+            'bob' => ['Bob', 'inactive', '3'],
+            'charlie' => ['Charlie', 'active', '100'],
         ],
         scroll: 5,
         label: 'Sort users',
-        sort: ['Name' => 'alpha', 'Nickname' => 'alpha'],
-    );
-
-    expect($result)->toBe('amy');
-    Prompt::assertStrippedOutputContains('Name ˄');
-});
-
-it('sorts numeric columns using configured type', function () {
-    Prompt::fake(['s', 'a', 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
-
-    $result = datatable(
-        headers: ['Name', 'Age'],
-        rows: [
-            'alice' => ['Alice', '20'],
-            'bob' => ['Bob', '3'],
-            'charlie' => ['Charlie', '100'],
-        ],
-        scroll: 5,
-        label: 'Sort users',
-        sort: ['Name' => 'alpha', 'Age' => 'numeric'],
+        sort: ['Name' => 'alpha', 'Status' => false, 'Age' => 'numeric'],
     );
 
     expect($result)->toBe('bob');
@@ -676,8 +636,46 @@ it('sorts numeric columns using configured type', function () {
     Prompt::assertOutputContains("\e[2m-\e[22m");
 });
 
-it('keeps sort mode active when selecting a sortable column with the same shortcut key', function () {
-    Prompt::fake(['s', 's', 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+it('supports Key::RIGHT_ARROW for moving to the next sortable column', function () {
+    Prompt::fake(['c', Key::RIGHT_ARROW, 's', Key::ESCAPE, Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Name', 'Seats'],
+        rows: [
+            'high' => ['High', '150'],
+            'low' => ['Low', '45'],
+            'mid' => ['Mid', '95'],
+        ],
+        scroll: 5,
+        label: 'Sort seats',
+        sort: ['Name' => 'alpha', 'Seats' => 'numeric'],
+    );
+
+    expect($result)->toBe('low');
+    Prompt::assertStrippedOutputContains('Seats ˄');
+});
+
+it('supports Key::LEFT for wrapping to the previous sortable column', function () {
+    Prompt::fake(['c', Key::LEFT, 's', Key::ESCAPE, Key::ENTER]);
+
+    $result = datatable(
+        headers: ['Name', 'Seats'],
+        rows: [
+            'high' => ['High', '150'],
+            'low' => ['Low', '45'],
+            'mid' => ['Mid', '95'],
+        ],
+        scroll: 5,
+        label: 'Sort seats',
+        sort: ['Name' => 'alpha', 'Seats' => 'numeric'],
+    );
+
+    expect($result)->toBe('low');
+    Prompt::assertStrippedOutputContains('Seats ˄');
+});
+
+it('supports Key::LEFT_ARROW for wrapping to the previous sortable column', function () {
+    Prompt::fake(['c', Key::LEFT_ARROW, 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Name', 'Seats'],
@@ -721,7 +719,7 @@ it('renders explicit structured display values without applying column formatter
 });
 
 it('sorts numeric columns using structured raw values instead of display text', function () {
-    Prompt::fake(['s', Key::ENTER, 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['c', 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Title', 'Runtime'],
@@ -787,7 +785,7 @@ it('returns associative key for structured rows', function () {
 });
 
 it('formats columns with printf patterns and keeps numeric sorting based on raw values', function () {
-    Prompt::fake(['s', 'r', 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['c', Key::RIGHT, 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Title', 'Revenue'],
@@ -869,8 +867,8 @@ it('treats legacy currency and duration formatter names as no-op', function () {
     Prompt::assertStrippedOutputDoesntContain('hours');
 });
 
-it('toggles sort direction with s in sorted mode', function () {
-    Prompt::fake(['s', Key::ENTER, 's', 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+it('toggles sort direction with s in column mode', function () {
+    Prompt::fake(['c', 's', 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Name'],
@@ -890,7 +888,7 @@ it('toggles sort direction with s in sorted mode', function () {
 });
 
 it('sorts date columns using configured type', function () {
-    Prompt::fake(['s', Key::ENTER, 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['c', 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Created At'],
@@ -907,7 +905,7 @@ it('sorts date columns using configured type', function () {
 });
 
 it('sorts date columns using a configured date pattern', function () {
-    Prompt::fake(['s', Key::ENTER, 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['c', 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Created At'],
@@ -924,7 +922,7 @@ it('sorts date columns using a configured date pattern', function () {
 });
 
 it('sorts alpha-numeric columns naturally', function () {
-    Prompt::fake(['s', Key::ENTER, 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['c', 's', Key::ESCAPE, Key::ENTER]);
 
     $result = datatable(
         headers: ['Version'],
@@ -956,6 +954,9 @@ it('shows browse mode help text by default', function () {
     );
 
     Prompt::assertStrippedOutputContains('[Enter] select');
+    Prompt::assertStrippedOutputContains('[/] search');
+    Prompt::assertStrippedOutputContains('[c] column');
+    Prompt::assertStrippedOutputDoesntContain('[s] select');
 });
 
 it('shows search mode help text while searching', function () {
@@ -975,25 +976,8 @@ it('shows search mode help text while searching', function () {
     Prompt::assertStrippedOutputContains('Type to filter | Enter: keep filter');
 });
 
-it('shows sort mode help text while in sort mode', function () {
-    Prompt::fake(['s', Key::ESCAPE, Key::ENTER]);
-
-    datatable(
-        headers: ['Version'],
-        rows: [
-            ['v10'],
-            ['v2'],
-        ],
-        scroll: 5,
-        label: 'Sort versions',
-        sort: ['Version' => 'alpha-numeric'],
-    );
-
-    Prompt::assertStrippedOutputContains('Type to narrow selectable columns');
-});
-
 it('shows column mode help text while selecting a column', function () {
-    Prompt::fake(['s', Key::ENTER, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['c', Key::ESCAPE, Key::ENTER]);
 
     datatable(
         headers: ['Version'],
@@ -1006,28 +990,11 @@ it('shows column mode help text while selecting a column', function () {
         sort: ['Version' => 'alpha-numeric'],
     );
 
-    Prompt::assertStrippedOutputContains('s: enter sort mode | Esc: back to select');
-});
-
-it('shows sorted mode help text while selecting sort direction', function () {
-    Prompt::fake(['s', Key::ENTER, 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
-
-    datatable(
-        headers: ['Version'],
-        rows: [
-            ['v10'],
-            ['v2'],
-        ],
-        scroll: 5,
-        label: 'Sort versions',
-        sort: ['Version' => 'alpha-numeric'],
-    );
-
-    Prompt::assertStrippedOutputContains('s: toggle sort direction | Esc: back to column');
+    Prompt::assertStrippedOutputContains('[←/→] column  [s] sort/toggle  [/] search  [Esc] normal');
 });
 
 it('renders a mode label before the help text', function () {
-    Prompt::fake(['/', Key::ESCAPE, 's', Key::ENTER, 's', Key::ESCAPE, Key::ESCAPE, Key::ESCAPE, Key::ENTER]);
+    Prompt::fake(['/', Key::ESCAPE, 'c', Key::ESCAPE, Key::ENTER]);
 
     datatable(
         headers: ['Version'],
@@ -1042,8 +1009,8 @@ it('renders a mode label before the help text', function () {
 
     Prompt::assertStrippedOutputContains('NORMAL');
     Prompt::assertStrippedOutputContains('SEARCH');
-    Prompt::assertStrippedOutputContains('SELECT');
     Prompt::assertStrippedOutputContains('COLUMN');
-    Prompt::assertStrippedOutputContains('SORTED');
+    Prompt::assertStrippedOutputDoesntContain('SELECT');
+    Prompt::assertStrippedOutputDoesntContain('SORTED');
     Prompt::assertOutputContains("\e[40m\e[37m NORMAL \e[39m\e[49m");
 });
