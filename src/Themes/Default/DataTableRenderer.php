@@ -139,37 +139,15 @@ class DataTableRenderer extends Renderer implements Scrolling
             // Header cells: │ Header │ Header   │
             if (! empty($prompt->headers)) {
                 $headerCells = [];
-                $sortPrefixLengths = $this->sortModePrefixLengths($prompt);
-                $sortQuery = $prompt->tableState->sortQuery;
-                $sortMatches = array_flip($prompt->tableState->matchingSortableColumnIndexes());
                 $selectedColumnIndex = $prompt->tableState->selectedColumnIndex;
-                $isSelectMode = $prompt->isSelectMode();
-                $isColumnOrSortedMode = $prompt->isColumnMode() || $prompt->isSortedMode();
+                $isColumnSelectionMode = $prompt->isColumnSelectionMode();
 
                 foreach ($widths as $i => $w) {
                     $text = $this->truncate((string) ($headers[$i] ?? ''), $w);
                     $column = $prompt->tableState->columns[$i] ?? null;
                     [$title, $icon] = $this->splitHeaderTitleAndIcon($text);
 
-                    if ($isSelectMode) {
-                        if ($column?->sortable) {
-                            if ($sortQuery === '') {
-                                $text = $this->composeHeader(
-                                    $this->highlightSortPrefix($title, $sortPrefixLengths[$i] ?? 0),
-                                    $icon
-                                );
-                            } else {
-                                $text = isset($sortMatches[$column->index])
-                                    ? $this->composeHeader(
-                                        $this->highlightSortPrefix($title, $sortPrefixLengths[$i] ?? 0),
-                                        $icon
-                                    )
-                                    : $this->dim($text);
-                            }
-                        } else {
-                            $text = $this->dim($text);
-                        }
-                    } elseif ($isColumnOrSortedMode && $column?->index === $selectedColumnIndex) {
+                    if ($isColumnSelectionMode && $column?->sortable && $column->index === $selectedColumnIndex) {
                         $text = $this->composeHeader($this->bold($this->black($title)), $icon);
                     } else {
                         $text = $this->composeHeader($this->dim($title), $icon);
@@ -398,84 +376,6 @@ class DataTableRenderer extends Renderer implements Scrolling
         }
 
         return $dataLines;
-    }
-
-    /**
-     * Compute the shortest unique prefix length for each sortable header title.
-     *
-     * @return array<int, int>
-     */
-    protected function sortModePrefixLengths(DataTablePrompt $prompt): array
-    {
-        $titles = [];
-
-        foreach ($prompt->tableState->columns as $column) {
-            if (! $column->sortable) {
-                continue;
-            }
-
-            $titles[$column->index] = mb_strtolower($column->title);
-        }
-
-        $lengths = [];
-
-        foreach ($titles as $index => $title) {
-            $titleLength = mb_strlen($title);
-
-            if ($titleLength === 0) {
-                $lengths[$index] = 0;
-
-                continue;
-            }
-
-            $lengths[$index] = $titleLength;
-
-            for ($candidate = 1; $candidate <= $titleLength; $candidate++) {
-                $prefix = mb_substr($title, 0, $candidate);
-                $isUnique = true;
-
-                foreach ($titles as $otherIndex => $otherTitle) {
-                    if ($otherIndex === $index) {
-                        continue;
-                    }
-
-                    if (str_starts_with($otherTitle, $prefix)) {
-                        $isUnique = false;
-
-                        break;
-                    }
-                }
-
-                if ($isUnique) {
-                    $lengths[$index] = $candidate;
-
-                    break;
-                }
-            }
-        }
-
-        return $lengths;
-    }
-
-    /**
-     * Emphasize the sortable prefix in sort mode headers.
-     */
-    protected function highlightSortPrefix(string $header, int $prefixLength): string
-    {
-        if ($prefixLength <= 0 || $header === '') {
-            return $this->dim($header);
-        }
-
-        $length = min($prefixLength, mb_strlen($header));
-
-        if ($length === 0) {
-            return $this->dim($header);
-        }
-
-        $prefix = mb_substr($header, 0, $length);
-        $suffix = mb_substr($header, $length);
-
-        return $this->bold($this->black($prefix)).$this->dim($suffix);
     }
 
     /**
