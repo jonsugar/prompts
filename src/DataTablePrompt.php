@@ -5,11 +5,9 @@ namespace Laravel\Prompts;
 use Closure;
 use Illuminate\Support\Collection;
 use Laravel\Prompts\DataTable\Modes\BrowseMode;
-use Laravel\Prompts\DataTable\Modes\ColumnMode;
+use Laravel\Prompts\DataTable\Modes\ColumnSelectionMode;
 use Laravel\Prompts\DataTable\Modes\DataTableMode;
 use Laravel\Prompts\DataTable\Modes\SearchMode;
-use Laravel\Prompts\DataTable\Modes\SelectMode;
-use Laravel\Prompts\DataTable\Modes\SortedMode;
 use Laravel\Prompts\DataTable\TableState;
 
 /**
@@ -142,47 +140,11 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Handle key presses in select mode.
+     * Handle key presses in column selection mode.
      */
-    public function handleSelectKey(string $key): void
+    public function handleColumnSelectionKey(string $key): void
     {
-        (new SelectMode)->handleKey($this, $key);
-    }
-
-    /**
-     * Handle key presses in column mode.
-     */
-    public function handleColumnKey(string $key): void
-    {
-        (new ColumnMode)->handleKey($this, $key);
-    }
-
-    /**
-     * Handle key presses in sorted mode.
-     */
-    public function handleSortedKey(string $key): void
-    {
-        (new SortedMode)->handleKey($this, $key);
-    }
-
-    /**
-     * Handle key presses in sort mode.
-     *
-     * @deprecated Use handleSelectKey().
-     */
-    public function handleSortKey(string $key): void
-    {
-        $this->handleSelectKey($key);
-    }
-
-    /**
-     * Handle key presses in sort column mode.
-     *
-     * @deprecated Use handleColumnKey().
-     */
-    public function handleSortColumnKey(string $key): void
-    {
-        $this->handleColumnKey($key);
+        (new ColumnSelectionMode)->handleKey($this, $key);
     }
 
     /**
@@ -292,64 +254,16 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Enter select mode.
+     * Enter column selection mode.
      */
-    public function enterSelectMode(): void
+    public function enterColumnSelectionMode(): void
     {
         if (! $this->tableState->hasSortableColumns()) {
             return;
         }
 
-        $this->tableState->clearSortQuery();
-        $this->transitionTo(new SelectMode);
-    }
-
-    /**
-     * Enter column mode.
-     */
-    public function enterColumnMode(): void
-    {
-        $this->transitionTo(new ColumnMode);
-    }
-
-    /**
-     * Enter sorted mode.
-     */
-    public function enterSortedMode(): void
-    {
-        if ($this->tableState->selectedColumnIndex === null) {
-            return;
-        }
-
-        $sortActivated = $this->tableState->activateSortForSelectedColumn();
-
-        if ($sortActivated) {
-            $this->invalidateFilteredRows();
-            $this->highlighted = 0;
-            $this->firstVisible = 0;
-        }
-
-        $this->transitionTo(new SortedMode);
-    }
-
-    /**
-     * Enter sort mode.
-     *
-     * @deprecated Use enterSelectMode().
-     */
-    public function enterSortMode(): void
-    {
-        $this->enterSelectMode();
-    }
-
-    /**
-     * Enter sort column mode.
-     *
-     * @deprecated Use enterColumnMode().
-     */
-    public function enterSortColumnMode(): void
-    {
-        $this->enterColumnMode();
+        $this->tableState->prepareColumnSelection();
+        $this->transitionTo(new ColumnSelectionMode);
     }
 
     /**
@@ -361,128 +275,35 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Apply sorting by mode shortcut.
+     * Select previous sortable column in column selection mode.
      */
-    public function applySortShortcut(string $key): bool
+    public function selectPreviousSortableColumn(): void
     {
-        $applied = $this->tableState->applySortShortcut($key);
-
-        if (! $applied) {
-            return false;
-        }
-
-        $this->invalidateFilteredRows();
-        $this->highlighted = 0;
-        $this->firstVisible = 0;
-
-        return true;
+        $this->tableState->selectPreviousSortableColumn();
     }
 
     /**
-     * Append printable characters to the sort mode query.
+     * Select next sortable column in column selection mode.
      */
-    public function appendSortQuery(string $key): void
+    public function selectNextSortableColumn(): void
     {
-        foreach (mb_str_split($key) as $character) {
-            if (mb_ord($character) >= 32) {
-                $this->tableState->appendSortQuery($character);
-            }
-        }
+        $this->tableState->selectNextSortableColumn();
     }
 
     /**
-     * Remove one character from the sort mode query.
+     * Apply or toggle sorting for the currently selected column.
      */
-    public function trimSortQuery(): void
+    public function sortSelectedColumn(): void
     {
-        $this->tableState->trimSortQuery();
-    }
+        $sortChanged = $this->tableState->sortSelectedColumn();
 
-    /**
-     * Reset the sort mode query.
-     */
-    public function clearSortQuery(): void
-    {
-        $this->tableState->clearSortQuery();
-    }
-
-    /**
-     * Leave column mode and return to select mode.
-     */
-    public function exitColumnMode(): void
-    {
-        $this->enterSelectMode();
-    }
-
-    /**
-     * Leave sorted mode and return to column mode.
-     */
-    public function exitSortedMode(): void
-    {
-        $this->enterColumnMode();
-    }
-
-    /**
-     * Leave sort column mode and return to select mode.
-     *
-     * @deprecated Use exitColumnMode().
-     */
-    public function exitSortColumnMode(): void
-    {
-        $this->exitColumnMode();
-    }
-
-    /**
-     * Toggle the active sort direction.
-     */
-    public function toggleSortDirection(): void
-    {
-        $toggled = $this->tableState->toggleSortDirection();
-
-        if (! $toggled) {
+        if (! $sortChanged) {
             return;
         }
 
         $this->invalidateFilteredRows();
         $this->highlighted = 0;
         $this->firstVisible = 0;
-    }
-
-    /**
-     * Apply sorting when the type-ahead query matches exactly one sortable column.
-     */
-    public function applySortFromQueryIfUnique(): bool
-    {
-        $matches = $this->tableState->matchingSortableColumnIndexes();
-
-        if (count($matches) !== 1) {
-            return false;
-        }
-
-        $selectionChanged = $this->tableState->selectColumn($matches[0]);
-        $this->clearSortQuery();
-
-        if ($selectionChanged) {
-            $this->invalidateFilteredRows();
-            $this->highlighted = 0;
-            $this->firstVisible = 0;
-        }
-
-        $this->enterColumnMode();
-
-        return true;
-    }
-
-    /**
-     * Apply sorting from query only when a non-empty query is present.
-     */
-    public function applySortFromQueryIfUniqueWhenQueryPresent(): bool
-    {
-        if ($this->tableState->sortQuery === '') {
-            return false;
-        }
-
-        return $this->applySortFromQueryIfUnique();
     }
 
     /**
@@ -494,55 +315,11 @@ class DataTablePrompt extends Prompt
     }
 
     /**
-     * Determine whether select mode is active.
-     */
-    public function isSelectMode(): bool
-    {
-        return $this->tableState->mode()->name() === SelectMode::NAME;
-    }
-
-    /**
-     * Determine whether column mode is active.
-     */
-    public function isColumnMode(): bool
-    {
-        return $this->tableState->mode()->name() === ColumnMode::NAME;
-    }
-
-    /**
-     * Determine whether sorted mode is active.
-     */
-    public function isSortedMode(): bool
-    {
-        return $this->tableState->mode()->name() === SortedMode::NAME;
-    }
-
-    /**
-     * Determine whether any select/column/sorted mode is active.
+     * Determine whether column selection mode is active.
      */
     public function isColumnSelectionMode(): bool
     {
-        return $this->isSelectMode() || $this->isColumnMode() || $this->isSortedMode();
-    }
-
-    /**
-     * Determine whether sort mode is active.
-     *
-     * @deprecated Use isSelectMode().
-     */
-    public function isSortMode(): bool
-    {
-        return $this->isSelectMode();
-    }
-
-    /**
-     * Determine whether sort column mode is active.
-     *
-     * @deprecated Use isColumnMode().
-     */
-    public function isSortColumnMode(): bool
-    {
-        return $this->isColumnMode();
+        return $this->tableState->mode()->name() === ColumnSelectionMode::NAME;
     }
 
     /**
@@ -561,9 +338,7 @@ class DataTablePrompt extends Prompt
         return match ($this->tableState->mode()->name()) {
             BrowseMode::NAME => 'NORMAL',
             SearchMode::NAME => 'SEARCH',
-            SelectMode::NAME => 'SELECT',
-            ColumnMode::NAME => 'COLUMN',
-            SortedMode::NAME => 'SORTED',
+            ColumnSelectionMode::NAME => 'COLUMN',
             default => strtoupper($this->tableState->mode()->name()),
         };
     }

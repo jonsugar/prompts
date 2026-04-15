@@ -25,11 +25,6 @@ class TableState
     public ?int $selectedColumnIndex = null;
 
     /**
-     * The current type-ahead query while in select mode.
-     */
-    public string $sortQuery = '';
-
-    /**
      * @var DataTableMode
      */
     protected DataTableMode $mode;
@@ -79,115 +74,57 @@ class TableState
     }
 
     /**
-     * Apply sorting via a visible shortcut key.
+     * Prepare selected column when entering column selection mode.
      */
-    public function applySortShortcut(string $shortcut): bool
+    public function prepareColumnSelection(): void
     {
-        $shortcut = strtolower($shortcut);
-
-        foreach ($this->columns as $column) {
-            if ($column->sortable && $column->shortcut !== null && strtolower($column->shortcut) === $shortcut) {
-                $this->applySort($column->index);
-
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Apply sort to a specific column.
-     */
-    public function applySort(int $columnIndex): void
-    {
-        $column = $this->columnByIndex($columnIndex);
-
-        if ($column === null || ! $column->sortable) {
-            return;
-        }
-
-        if ($this->sortSelection !== null && $this->sortSelection->columnIndex === $columnIndex) {
-            $this->sortSelection->direction = SortDirection::toggle($this->sortSelection->direction);
-            $this->selectedColumnIndex = $columnIndex;
+        if ($this->sortSelection !== null) {
+            $this->selectedColumnIndex = $this->sortSelection->columnIndex;
 
             return;
         }
 
-        $this->selectedColumnIndex = $columnIndex;
-        $this->sortSelection = new SortSelection($columnIndex, SortDirection::ASC);
+        $this->selectedColumnIndex = $this->firstSortableColumnIndex();
     }
 
     /**
-     * Select a sortable column without applying sorting.
+     * Select the previous sortable column, wrapping around.
      */
-    public function selectColumn(int $columnIndex): bool
+    public function selectPreviousSortableColumn(): bool
     {
-        $column = $this->columnByIndex($columnIndex);
-
-        if ($column === null || ! $column->sortable) {
-            return false;
-        }
-
-        $selectionChanged = $this->selectedColumnIndex !== $columnIndex;
-        $sortWasActive = $this->sortSelection !== null;
-
-        $this->selectedColumnIndex = $columnIndex;
-        $this->sortSelection = null;
-
-        return $selectionChanged || $sortWasActive;
+        return $this->moveSelectedSortableColumn(-1);
     }
 
     /**
-     * Activate sorting for the selected column using ascending order.
+     * Select the next sortable column, wrapping around.
      */
-    public function activateSortForSelectedColumn(): bool
+    public function selectNextSortableColumn(): bool
+    {
+        return $this->moveSelectedSortableColumn(1);
+    }
+
+    /**
+     * Apply or toggle sorting from the selected column.
+     */
+    public function sortSelectedColumn(): bool
     {
         if ($this->selectedColumnIndex === null) {
             return false;
         }
 
-        $column = $this->columnByIndex($this->selectedColumnIndex);
+        $selectedColumn = $this->columnByIndex($this->selectedColumnIndex);
 
-        if ($column === null || ! $column->sortable) {
+        if ($selectedColumn === null || ! $selectedColumn->sortable) {
             return false;
         }
 
-        if ($this->sortSelection !== null
-            && $this->sortSelection->columnIndex === $this->selectedColumnIndex
-            && $this->sortSelection->direction === SortDirection::ASC) {
-            return false;
+        if ($this->sortSelection !== null && $this->sortSelection->columnIndex === $selectedColumn->index) {
+            $this->sortSelection->direction = SortDirection::toggle($this->sortSelection->direction);
+
+            return true;
         }
 
-        $this->sortSelection = new SortSelection($this->selectedColumnIndex, SortDirection::ASC);
-
-        return true;
-    }
-
-    /**
-     * Select and sort a column.
-     *
-     * @deprecated Use selectColumn() + activateSortForSelectedColumn().
-     */
-    public function selectSortColumn(int $columnIndex): bool
-    {
-        $selected = $this->selectColumn($columnIndex);
-        $sorted = $this->activateSortForSelectedColumn();
-
-        return $selected || $sorted;
-    }
-
-    /**
-     * Toggle direction for the selected sort column.
-     */
-    public function toggleSortDirection(): bool
-    {
-        if ($this->sortSelection === null) {
-            return false;
-        }
-
-        $this->selectedColumnIndex = $this->sortSelection->columnIndex;
-        $this->sortSelection->direction = SortDirection::toggle($this->sortSelection->direction);
+        $this->sortSelection = new SortSelection($selectedColumn->index, SortDirection::ASC);
 
         return true;
     }
@@ -238,59 +175,78 @@ class TableState
     }
 
     /**
-     * Append typed characters to the active sort query.
+     * Move selected sortable column by offset with wrapping.
      */
-    public function appendSortQuery(string $value): void
+    protected function moveSelectedSortableColumn(int $offset): bool
     {
-        if ($value !== '') {
-            $this->sortQuery .= $value;
-        }
-    }
+        $sortableIndexes = $this->sortableColumnIndexes();
+        $sortableCount = count($sortableIndexes);
 
-    /**
-     * Remove one character from the end of the sort query.
-     */
-    public function trimSortQuery(): void
-    {
-        if ($this->sortQuery === '') {
-            return;
+        if ($sortableCount === 0) {
+            return false;
         }
 
-        $this->sortQuery = mb_substr($this->sortQuery, 0, mb_strlen($this->sortQuery) - 1);
+        $currentPosition = array_search($this->selectedColumnIndex, $sortableIndexes, true);
+
+        if ($currentPosition === false) {
+            $nextIndex = $offset < 0 ? $sortableIndexes[$sortableCount - 1] : $sortableIndexes[0];
+
+            if ($this->selectedColumnIndex === $nextIndex) {
+                return false;
+            }
+
+            $this->selectedColumnIndex = $nextIndex;
+
+            return true;
+        }
+
+        $nextPosition = ($currentPosition + $offset) % $sortableCount;
+
+        if ($nextPosition < 0) {
+            $nextPosition += $sortableCount;
+        }
+
+        $nextIndex = $sortableIndexes[$nextPosition];
+
+        if ($this->selectedColumnIndex === $nextIndex) {
+            return false;
+        }
+
+        $this->selectedColumnIndex = $nextIndex;
+
+        return true;
     }
 
     /**
-     * Clear the sort query.
+     * Get the first sortable column index.
      */
-    public function clearSortQuery(): void
+    protected function firstSortableColumnIndex(): ?int
     {
-        $this->sortQuery = '';
+        foreach ($this->columns as $column) {
+            if ($column->sortable) {
+                return $column->index;
+            }
+        }
+
+        return null;
     }
 
     /**
-     * Return sortable column indexes matching the current sort query.
-     *
      * @return array<int, int>
      */
-    public function matchingSortableColumnIndexes(): array
+    protected function sortableColumnIndexes(): array
     {
-        $query = mb_strtolower($this->sortQuery);
-        $matches = [];
+        $sortableIndexes = [];
 
         foreach ($this->columns as $column) {
-            if (! $column->sortable) {
-                continue;
-            }
-
-            $title = mb_strtolower($column->title);
-
-            if ($query === '' || str_starts_with($title, $query)) {
-                $matches[] = $column->index;
+            if ($column->sortable) {
+                $sortableIndexes[] = $column->index;
             }
         }
 
-        return $matches;
+        return $sortableIndexes;
     }
+
 
     /**
      * @param array<int|string, array<int|string, mixed>> $rows
@@ -432,7 +388,6 @@ class TableState
         $sortMap = $this->normalizeSortConfiguration($headers, $count, $sortConfiguration);
 
         $columns = [];
-        $sortablePosition = 1;
 
         for ($index = 0; $index < $count; $index++) {
             $sortDefinition = $sortMap[$index] ?? null;
@@ -444,7 +399,6 @@ class TableState
                 title: $this->headerTitle($headers, $index),
                 sortable: $sortable,
                 type: $type ?? ColumnType::ALPHA,
-                shortcut: $sortable ? $this->shortcutForPosition($sortablePosition++) : null,
                 datePatterns: $sortDefinition['date_patterns'] ?? [],
                 displayFormatter: $sortDefinition['display_formatter'] ?? null,
             );
@@ -842,24 +796,6 @@ class TableState
         }
 
         return $this->sortSelection->direction === SortDirection::ASC ? '˄' : '˅';
-    }
-
-    /**
-     * Convert sortable column position to an interaction shortcut.
-     */
-    protected function shortcutForPosition(int $position): ?string
-    {
-        if ($position <= 9) {
-            return (string)$position;
-        }
-
-        $index = $position - 10;
-
-        if ($index < 26) {
-            return chr(ord('a') + $index);
-        }
-
-        return null;
     }
 
     /**
